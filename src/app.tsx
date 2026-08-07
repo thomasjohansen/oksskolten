@@ -3,7 +3,7 @@ import { useState, useMemo, useRef, useEffect, useLayoutEffect, useCallback, laz
 import { AnimatePresence, motion } from 'framer-motion'
 import useSWR, { SWRConfig } from 'swr'
 import { useSettings, type Settings } from './hooks/use-settings'
-import { fetcher } from './lib/fetcher'
+import { fetcher, apiPatch } from './lib/fetcher'
 import { LocaleContext, APP_NAME, type Locale, useI18n } from './lib/i18n'
 import { MD_BREAKPOINT } from './lib/breakpoints'
 import { useIsTouchDevice } from './hooks/use-is-touch-device'
@@ -46,17 +46,20 @@ function AppLayout() {
 
   const { data: profile } = useSWR<{ language: string | null }>('/api/settings/profile', fetcher)
 
-  // Query parameter ?lang=ja|en|zh takes highest priority (useful for demo sharing links)
+  // Query parameter ?lang=ja|en|zh|de takes highest priority (useful for demo sharing links)
   const langFromUrl = useMemo(() => {
     const p = new URLSearchParams(window.location.search).get('lang')
-    return p === 'ja' || p === 'en' || p === 'zh' ? p : null
+    return p === 'ja' || p === 'en' || p === 'zh' || p === 'de' ? p : null
   }, [])
 
   const [locale, setLocaleState] = useState<Locale>(() => {
     if (langFromUrl) return langFromUrl
     const cached = localStorage.getItem('locale')
-    if (cached === 'ja' || cached === 'en' || cached === 'zh') return cached
-    return navigator.language.startsWith('ja') ? 'ja' : navigator.language.startsWith('zh') ? 'zh' : 'en'
+    if (cached === 'ja' || cached === 'en' || cached === 'zh' || cached === 'de') return cached
+    if (navigator.language.startsWith('ja')) return 'ja'
+    if (navigator.language.startsWith('zh')) return 'zh'
+    if (navigator.language.startsWith('de')) return 'de'
+    return 'en'
   })
 
   const setLocale = useCallback((l: Locale) => {
@@ -73,11 +76,18 @@ function AppLayout() {
     // Only apply profile language as initial fallback — if localStorage already
     // has a valid locale the user explicitly chose, respect it.
     const cached = localStorage.getItem('locale')
-    if (cached === 'ja' || cached === 'en' || cached === 'zh') return
-    if (profile?.language === 'ja' || profile?.language === 'en' || profile?.language === 'zh') {
-      setLocale(profile.language)
+    const validLocales = ['ja', 'en', 'zh', 'de'] as const
+    const isValidLocale = (value: string | null): value is Locale => validLocales.includes(value as Locale)
+    if (cached && isValidLocale(cached)) {
+      if (profile && profile.language !== cached) void apiPatch('/api/settings/profile', { language: cached }).catch(() => {})
+      return
     }
-  }, [profile, setLocale, langFromUrl])
+    if (profile?.language && isValidLocale(profile.language)) {
+      setLocale(profile.language)
+    } else if (profile) {
+      void apiPatch('/api/settings/profile', { language: locale }).catch(() => {})
+    }
+  }, [profile, setLocale, langFromUrl, locale])
 
   const localeCtx = useMemo(() => ({ locale, setLocale }), [locale, setLocale])
 

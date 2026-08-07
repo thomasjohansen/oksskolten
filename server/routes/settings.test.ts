@@ -39,6 +39,36 @@ beforeEach(async () => {
   app = await buildApp()
 })
 
+describe('language settings', () => {
+  it('accepts German profile language and returns it from the profile', async () => {
+    const update = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/profile',
+      headers: json,
+      payload: { language: 'de' },
+    })
+
+    expect(update.statusCode).toBe(200)
+    expect(update.json().language).toBe('de')
+
+    const profile = await app.inject({ method: 'GET', url: '/api/settings/profile' })
+    expect(profile.statusCode).toBe(200)
+    expect(profile.json().language).toBe('de')
+  })
+
+  it('accepts German as a translation target language', async () => {
+    const response = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/preferences',
+      headers: json,
+      payload: { 'translate.target_lang': 'de' },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json()['translate.target_lang']).toBe('de')
+  })
+})
+
 // =========================================================================
 // Provider-model consistency validation
 // =========================================================================
@@ -796,4 +826,3 @@ describe('vLLM endpoints', () => {
     expect(getSetting('vllm.base_url')).toBe('http://vllm:8000')
   })
 })
-

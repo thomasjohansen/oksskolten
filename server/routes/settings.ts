@@ -19,7 +19,7 @@ import { parseOrBadRequest } from '../lib/validation.js'
 const ProfileBody = z.object({
   account_name: z.string().optional(),
   avatar_seed: z.string().nullable().optional(),
-  language: z.enum(['ja', 'en', 'zh'], { error: 'language must be "ja", "en", or "zh"' }).optional(),
+  language: z.enum(['ja', 'en', 'zh', 'de'], { error: 'language must be "ja", "en", "zh", or "de"' }).optional(),
 })
 
 const ProviderParams = z.object({ provider: z.string() })
@@ -86,7 +86,7 @@ const PREF_ALLOWED: Record<PrefKey, string[] | null> = {
   'translate.provider': ['anthropic', 'gemini', 'openai', 'claude-code', 'ollama', 'vllm', 'google-translate', 'deepl'],
   'translate.model': getAllModelValues(),
   'translate.max_tokens': null,
-  'translate.target_lang': ['ja', 'en', 'zh'],
+  'translate.target_lang': ['ja', 'en', 'zh', 'de'],
   'ollama.base_url': null,
   'ollama.custom_headers': null,
   'vllm.base_url': null,
