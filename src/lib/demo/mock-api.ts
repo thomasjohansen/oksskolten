@@ -6,6 +6,33 @@ import { dt, getLocale, streamText } from './i18n'
 // ---------------------------------------------------------------------------
 const originalFetch = window.fetch.bind(window)
 
+interface DemoLabelRule {
+  id: number
+  label_id: number
+  match_text: string
+  match_field: 'title' | 'full_text' | 'both'
+  rule_type: 'and' | 'or' | 'not'
+}
+
+interface DemoLabel {
+  id: number
+  name: string
+  match_text: string
+  match_field: 'title' | 'full_text' | 'both'
+  sort_order: number
+  created_at: string
+  exclusive: number
+  rules: DemoLabelRule[]
+  article_count: number
+}
+
+let demoLabels: DemoLabel[] = []
+let nextDemoLabelId = 1
+
+function jsonResponse(value: unknown, status = 200): Response {
+  return new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } })
+}
+
 function sseResponse(events: Array<Record<string, unknown>>, delayMs = 200): Response {
   const encoder = new TextEncoder()
   let index = 0
@@ -31,6 +58,34 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
   const parsed = new URL(url, location.origin)
   const path = parsed.pathname
   const method = (init?.method ?? 'GET').toUpperCase()
+
+  const labelArticlesMatch = path.match(/^\/api\/labels\/(\d+)\/articles$/)
+  const labelMatch = path.match(/^\/api\/labels\/(\d+)$/)
+  if (path === '/api/labels' && method === 'POST') {
+    const body = asBody<{ name: string; exclusive?: boolean; rules: Omit<DemoLabelRule, 'id' | 'label_id'>[] }>(JSON.parse((init?.body as string) || '{}'))
+    const id = nextDemoLabelId++
+    const rules = body.rules.map((rule, index) => ({ ...rule, id: index + 1, label_id: id }))
+    const label: DemoLabel = { id, name: body.name, match_text: rules[0]?.match_text ?? '', match_field: rules[0]?.match_field ?? 'both', sort_order: demoLabels.length, created_at: new Date().toISOString(), exclusive: body.exclusive ? 1 : 0, rules, article_count: 0 }
+    demoLabels = [...demoLabels, label]
+    return jsonResponse(label, 201)
+  }
+  if (labelMatch && method === 'PATCH') {
+    const id = Number(labelMatch[1])
+    const body = asBody<Partial<DemoLabel> & { exclusive?: boolean; rules?: Omit<DemoLabelRule, 'id' | 'label_id'>[] }>(JSON.parse((init?.body as string) || '{}'))
+    const current = demoLabels.find(label => label.id === id)
+    if (!current) return jsonResponse({ error: 'Label not found' }, 404)
+    const rules = body.rules?.map((rule, index) => ({ ...rule, id: index + 1, label_id: id })) ?? current.rules
+    Object.assign(current, { ...body, rules, exclusive: body.exclusive == null ? current.exclusive : body.exclusive ? 1 : 0, match_text: rules[0]?.match_text ?? current.match_text, match_field: rules[0]?.match_field ?? current.match_field })
+    return jsonResponse(current)
+  }
+  if (labelMatch && method === 'DELETE') {
+    const id = Number(labelMatch[1])
+    demoLabels = demoLabels.filter(label => label.id !== id)
+    return new Response(null, { status: 204 })
+  }
+  if (labelArticlesMatch || labelMatch || (path === '/api/labels' && method === 'GET')) {
+    return originalFetch(input, init)
+  }
 
   // POST /api/feeds — SSE step-based feed addition
   if (method === 'POST' && path === '/api/feeds') {
@@ -96,6 +151,23 @@ function extractId(path: string, pattern: RegExp): number | null {
 // --- GET (SWR fetcher signature) ---
 export async function demoFetcher(url: string): Promise<unknown> {
   const { path, params } = parsePath(url)
+
+  if (path === '/api/labels') {
+    return { labels: demoLabels.map(label => ({ ...label, article_count: demoStore.getArticles({ unread: params.get('unread') === '1', limit: 10000 }).total })) }
+  }
+
+  const labelByIdMatch = path.match(/^\/api\/labels\/(\d+)$/)
+  if (labelByIdMatch) {
+    const label = demoLabels.find(item => item.id === Number(labelByIdMatch[1]))
+    if (!label) throw new Error('Label not found')
+    return label
+  }
+
+  const labelArticlesMatch = path.match(/^\/api\/labels\/(\d+)\/articles$/)
+  if (labelArticlesMatch) {
+    if (!demoLabels.some(label => label.id === Number(labelArticlesMatch[1]))) throw new Error('Label not found')
+    return demoStore.getArticles({ unread: params.get('unread') === '1', limit: Number(params.get('limit')) || 20, offset: Number(params.get('offset')) || 0 })
+  }
 
   if (path === '/api/feeds') {
     return demoStore.getFeeds()

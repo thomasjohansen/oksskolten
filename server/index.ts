@@ -7,7 +7,7 @@ import jwt from '@fastify/jwt'
 import rateLimit from '@fastify/rate-limit'
 import multipart from '@fastify/multipart'
 import cron, { type ScheduledTask } from 'node-cron'
-import { runMigrations, getSetting, upsertSetting, getOrCreateJwtSecret, ensureClipFeed, recalculateScores, purgeExpiredArticles, shrinkMemory } from './db.js'
+import { runMigrations, getSetting, upsertSetting, getOrCreateJwtSecret, ensureClipFeed, recalculateScores, purgeExpiredArticles, shrinkMemory, rebuildAllLabelMemberships } from './db.js'
 import { logger } from './logger.js'
 import { findProjectRoot } from './paths.js'
 
@@ -40,6 +40,15 @@ ensureClipFeed()
 if (process.env.NODE_ENV === 'development') {
   const { seedDevData } = await import('./seed.js')
   seedDevData()
+  rebuildAllLabelMemberships()
+}
+
+// --- One-time backfill of materialized label membership (migration 0013) ---
+// Run after development seeding because seed rows are inserted directly.
+if (getSetting('article_labels.built') !== '1') {
+  rebuildAllLabelMemberships()
+  upsertSetting('article_labels.built', '1')
+  log.info('Backfilled article_labels membership table')
 }
 
 // Migrate JWT_SECRET from env var to DB so existing tokens remain valid
