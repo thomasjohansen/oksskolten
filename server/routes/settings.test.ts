@@ -86,6 +86,17 @@ describe('PATCH /api/settings/preferences — provider-model validation', () => 
     expect(res.statusCode).toBe(200)
   })
 
+  it('accepts dynamic OpenRouter model IDs', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/preferences',
+      headers: json,
+      payload: { 'chat.provider': 'openrouter', 'chat.model': 'vendor/model-without-static-entry' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()['chat.model']).toBe('vendor/model-without-static-entry')
+  })
+
   it('rejects model that does not belong to provider', async () => {
     const res = await app.inject({
       method: 'PATCH',
@@ -502,7 +513,7 @@ describe('GET /api/settings/api-keys/:provider', () => {
   })
 
   it('works for all known providers', async () => {
-    for (const provider of ['anthropic', 'gemini', 'openai']) {
+    for (const provider of ['anthropic', 'gemini', 'openai', 'openrouter']) {
       const res = await app.inject({
         method: 'GET',
         url: `/api/settings/api-keys/${provider}`,
@@ -796,4 +807,3 @@ describe('vLLM endpoints', () => {
     expect(getSetting('vllm.base_url')).toBe('http://vllm:8000')
   })
 })
-
