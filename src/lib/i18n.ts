@@ -350,6 +350,13 @@ const dict = {
 
   // Translation target language
   'settings.translateTargetLang': { ja: '翻訳先言語', en: 'Translation language', zh: '翻译目标语言'},
+  'settings.aiPrompts': { ja: 'AIプロンプト', en: 'AI Prompts', zh: 'AI 提示词' },
+  'settings.aiPromptsDesc': { ja: '要約・翻訳で使用するプロンプトをカスタマイズします。{{article}} を記事本文のプレースホルダーとして使用してください。空欄の場合はデフォルトのプロンプトを使用します。', en: 'Customize the prompts used for summarization and translation. Use {{article}} as a placeholder for the article content. Leave empty to use the built-in default.', zh: '自定义摘要和翻译使用的提示词。使用 {{article}} 作为文章内容的占位符。留空使用内置默认值。' },
+  'settings.summarizePrompt': { ja: '要約プロンプト', en: 'Summarize prompt', zh: '摘要提示词' },
+  'settings.translatePrompt': { ja: '翻訳プロンプト', en: 'Translate prompt', zh: '翻译提示词' },
+  'settings.promptReset': { ja: 'デフォルトに戻す', en: 'Reset to default', zh: '恢复默认' },
+  'settings.promptSaved': { ja: '保存しました', en: 'Saved', zh: '已保存' },
+  'settings.promptCustomized': { ja: 'カスタム', en: 'Custom', zh: '自定义' },
   'settings.translateTargetLangDesc': { ja: '記事をどの言語に翻訳するか', en: 'Language to translate articles into', zh: '将文章翻译为哪种语言'},
   'settings.translateTargetLangAuto': { ja: 'UI言語と同じ', en: 'Same as UI language', zh: '与界面语言相同'},
 

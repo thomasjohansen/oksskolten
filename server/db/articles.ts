@@ -139,27 +139,27 @@ export function getArticles(opts: {
     // Candidate 1: SMART_FLOOR_DAYS ago
     const floorAgo = new Date(Date.now() - SMART_FLOOR_DAYS * 24 * 60 * 60 * 1000).toISOString()
 
-    // Candidate 2: SMART_FLOOR_MIN_ARTICLES-th newest article's date
-    const top20Row = getNamed<{ floor: string | null }>(`
-      SELECT a.published_at AS floor FROM active_articles a
-      ${scopeWhere}
-      ORDER BY a.published_at DESC
-      LIMIT 1 OFFSET ${SMART_FLOOR_MIN_ARTICLES - 1}
-    `, params)
-
-    // Candidate 3: oldest unread article's date
-    const unreadRow = getNamed<{ floor: string | null }>(`
-      SELECT MIN(a.published_at) AS floor FROM active_articles a
-      ${scopeWhere ? scopeWhere + ' AND' : 'WHERE'} a.seen_at IS NULL AND a.published_at IS NOT NULL
+    const unreadAnd = scopeWhere ? scopeWhere + ' AND' : 'WHERE'
+    const scopedWhere = scopeWhere.replace(/\ba\./g, 'a2.')
+    const scopedUnreadAnd = unreadAnd.replace(/\ba\./g, 'a2.')
+    // Candidates 2+3 in one query; inner aliases must not be captured by the outer query.
+    const floorRow = getNamed<{ top_floor: string | null; unread_floor: string | null }>(`
+      SELECT
+        (SELECT a2.published_at FROM active_articles a2
+         ${scopedWhere}
+         ORDER BY a2.published_at DESC
+         LIMIT 1 OFFSET ${SMART_FLOOR_MIN_ARTICLES - 1}) AS top_floor,
+        (SELECT MIN(a2.published_at) FROM active_articles a2
+         ${scopedUnreadAnd} a2.seen_at IS NULL AND a2.published_at IS NOT NULL) AS unread_floor
     `, params)
 
     // If fewer than SMART_FLOOR_MIN_ARTICLES exist, skip the floor entirely — show all
-    if (!top20Row?.floor) {
+    if (!floorRow?.top_floor) {
       // no-op: don't add a date condition
     } else {
       // Pick the earliest (= shows the most articles)
-      const candidates: string[] = [floorAgo, top20Row.floor]
-      if (unreadRow?.floor) candidates.push(unreadRow.floor)
+      const candidates: string[] = [floorAgo, floorRow.top_floor]
+      if (floorRow.unread_floor) candidates.push(floorRow.unread_floor)
       const smartFloorDate = candidates.sort()[0]
 
       conditions.push('(a.published_at IS NULL OR a.published_at >= @smartFloorDate)')

@@ -78,6 +78,22 @@ describe('useSummarize', () => {
     )
   })
 
+  it('adds force=1 when re-summarizing an existing summary', async () => {
+    mockStreamPost.mockResolvedValue({ usage: { input_tokens: 1, output_tokens: 1 } })
+
+    const metrics = mockMetrics()
+    const { result } = renderHook(() => useSummarize({ id: 8, summary: 'Old summary' }, metrics))
+
+    await act(async () => {
+      await result.current.handleSummarize(true)
+    })
+
+    expect(mockStreamPost).toHaveBeenCalledWith(
+      '/api/articles/8/summarize?stream=1&force=1',
+      expect.any(Function),
+    )
+  })
+
   it('sets final summary on completion', async () => {
     mockStreamPost.mockImplementation((_url: string, onDelta: (text: string) => void) => {
       onDelta('final text')

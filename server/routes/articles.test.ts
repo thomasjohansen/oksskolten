@@ -116,6 +116,22 @@ describe('POST /api/articles/:id/summarize?stream=1', () => {
     expect(res.json().cached).toBe(true)
   })
 
+  it('re-summarizes a cached summary when force=1', async () => {
+    const feed = seedFeed()
+    const artId = seedArticle(feed.id, { full_text: 'text', summary: 'Cached' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/articles/${artId}/summarize?force=1`,
+      headers: json,
+      payload: {},
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().text).toBe('summary text')
+    expect(res.json().cached).toBeUndefined()
+  })
+
   it('handles streaming error after headers sent', async () => {
     const feed = seedFeed()
     const artId = seedArticle(feed.id, { full_text: 'Long content' })

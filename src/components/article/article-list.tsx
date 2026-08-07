@@ -100,7 +100,9 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
     getKey,
     fetcher,
     {
-      revalidateFirstPage: isCollectionView,
+      revalidateFirstPage: true,
+      revalidateOnMount: true,
+      revalidateIfStale: true,
     },
   )
 
@@ -273,15 +275,30 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
   const observerRef = useRef<IntersectionObserver | null>(null)
   const batchQueue = useRef(new Set<number>())
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isValidatingRef = useRef(isValidating)
+  isValidatingRef.current = isValidating
+  const hasMoreRef = useRef(hasMore)
+  hasMoreRef.current = hasMore
+  const mutateArticlesRef = useRef(mutate)
+  mutateArticlesRef.current = mutate
 
   const flushBatch = useCallback(() => {
     if (batchQueue.current.size === 0) return
     const ids = [...batchQueue.current]
     batchQueue.current.clear()
+    const idSet = new Set(ids)
+    const now = new Date().toISOString()
     markSeenOnServer(ids)
-      .then(() => globalMutate(
-        (key: string) => typeof key === 'string' && key.startsWith('/api/feeds'),
-      ))
+      .then(() => {
+        void globalMutate((key: string) => typeof key === 'string' && key.startsWith('/api/feeds'))
+        void mutateArticlesRef.current(
+          pages => pages?.map(page => ({
+            ...page,
+            articles: page.articles.map(article => idSet.has(article.id) ? { ...article, seen_at: article.seen_at ?? now } : article),
+          })),
+          { revalidate: false },
+        )
+      })
       .catch(() => {})
   }, [globalMutate])
 
@@ -289,6 +306,10 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
     if (flushTimerRef.current) return
     flushTimerRef.current = setTimeout(() => {
       flushTimerRef.current = null
+      if (isValidatingRef.current || hasMoreRef.current) {
+        scheduleFlush()
+        return
+      }
       flushBatch()
     }, BATCH_FLUSH_INTERVAL)
   }, [flushBatch])
@@ -396,6 +417,26 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
       flushBatch()
     }
   }, [feedId, categoryId, flushBatch])
+
+  // Flush queued reads when the tab is hidden or the page is unloaded.
+  useEffect(() => {
+    const flushNow = () => {
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current)
+        flushTimerRef.current = null
+      }
+      flushBatch()
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushNow()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('pagehide', flushNow)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('pagehide', flushNow)
+    }
+  }, [flushBatch])
 
   // Reset autoReadIds, noFloor, showReadArticles, and keyboard focus when feed/category changes
   useEffect(() => {

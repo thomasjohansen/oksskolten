@@ -51,14 +51,17 @@ async function readSSE(
 
 export function useFetchProgress() {
   const [progress, setProgress] = useState<Map<number, FeedProgress>>(new Map())
-  const { mutate: globalMutate } = useSWRConfig()
+  const { mutate: globalMutate, cache } = useSWRConfig()
 
   const revalidate = useCallback(() => {
     void globalMutate((key: unknown) =>
       typeof key === 'string' && key.includes('/api/feeds'))
     void globalMutate((key: unknown) =>
       typeof key === 'string' && key.includes('/api/articles'))
-  }, [globalMutate])
+    for (const key of cache.keys()) {
+      if (typeof key === 'string' && key.includes('/api/articles')) void globalMutate(key)
+    }
+  }, [globalMutate, cache])
 
   const startFeedFetch = useCallback(async (feedId: number): Promise<FetchResult> => {
     setProgress(prev => new Map(prev).set(feedId, { fetched: 0, total: 0 }))

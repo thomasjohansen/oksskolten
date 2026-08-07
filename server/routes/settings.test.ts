@@ -39,6 +39,25 @@ beforeEach(async () => {
   app = await buildApp()
 })
 
+describe('prompt settings', () => {
+  it('exposes prompt preferences and default prompt templates', async () => {
+    const defaults = await app.inject({ method: 'GET', url: '/api/settings/prompts/defaults' })
+    expect(defaults.statusCode).toBe(200)
+    expect(defaults.json().summarize).toContain('{{article}}')
+    expect(defaults.json().translate).toContain('{{article}}')
+
+    const updated = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings/preferences',
+      headers: json,
+      payload: { 'prompt.summarize': 'Summarize: {{article}}' },
+    })
+    expect(updated.statusCode).toBe(200)
+    expect(updated.json()['prompt.summarize']).toBe('Summarize: {{article}}')
+    expect(getSetting('prompt.summarize')).toBe('Summarize: {{article}}')
+  })
+})
+
 // =========================================================================
 // Provider-model consistency validation
 // =========================================================================
@@ -796,4 +815,3 @@ describe('vLLM endpoints', () => {
     expect(getSetting('vllm.base_url')).toBe('http://vllm:8000')
   })
 })
-
