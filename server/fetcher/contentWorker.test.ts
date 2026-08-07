@@ -10,6 +10,20 @@ function makeHtml(body: string, meta = ''): string {
 // --- parseHtml ---
 
 describe('parseHtml', () => {
+  it('uses a substantially longer JSON-LD articleBody and escapes HTML', () => {
+    const articleBody = `First paragraph with enough article text to be useful. It contains several sentences and details for readers. ${'More article detail. '.repeat(12)}\n\nSecond paragraph includes <tag> and & safely.`
+    const html = makeHtml(
+      '<article><p>Short teaser.</p></article>' +
+      `<script type="application/ld+json">${JSON.stringify({ '@type': 'NewsArticle', articleBody })}</script>`,
+    )
+
+    const result = parseHtml({ html, articleUrl: BASE_URL })
+
+    expect(result.fullText).toContain('First paragraph')
+    // The tag is preserved as text, not interpreted as an HTML element.
+    expect(result.fullText).toContain('<tag>')
+  })
+
   it('extracts article content as markdown', () => {
     const html = makeHtml(`
       <article>

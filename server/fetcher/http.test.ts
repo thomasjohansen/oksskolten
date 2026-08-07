@@ -91,6 +91,26 @@ describe('fetchHtml', () => {
     await expect(fetchHtml('https://example.com')).rejects.toThrow('HTTP 500')
   })
 
+  it('does not use FlareSolverr for non-Cloudflare HTTP errors', async () => {
+    mockSafeFetch.mockResolvedValue({ ok: false, status: 404, headers: new Headers() })
+
+    await expect(fetchHtml('https://example.com')).rejects.toThrow('HTTP 404')
+    expect(mockFetchViaFlareSolverr).not.toHaveBeenCalled()
+  })
+
+  it('uses FlareSolverr for a Cloudflare response identified by cf-ray', async () => {
+    mockSafeFetch.mockResolvedValue({
+      ok: false,
+      status: 502,
+      headers: new Headers({ 'cf-ray': 'abc123' }),
+    })
+    mockFetchViaFlareSolverr.mockResolvedValue({ body: '<html>flare</html>', contentType: 'text/html' })
+
+    const result = await fetchHtml('https://example.com')
+
+    expect(result.usedFlareSolverr).toBe(true)
+  })
+
   it('goes straight to FlareSolverr when useFlareSolverr option is set', async () => {
     mockFetchViaFlareSolverr.mockResolvedValue({
       body: '<html>direct</html>',

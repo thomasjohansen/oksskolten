@@ -57,6 +57,31 @@ export interface ParseHtmlResult {
   title: string | null
 }
 
+function extractJsonLdArticleBody(doc: Document): string | null {
+  const scripts = doc.querySelectorAll('script[type="application/ld+json"]')
+  for (const script of scripts) {
+    try {
+      const raw = JSON.parse(script.textContent || '')
+      const items: unknown[] = Array.isArray(raw) ? raw : [raw]
+      for (const item of items) {
+        if (!item || typeof item !== 'object') continue
+        const obj = item as Record<string, unknown>
+        const type = obj['@type']
+        const types: unknown[] = Array.isArray(type) ? type : [type]
+        const isArticle = types.some(
+          t => typeof t === 'string' && /^(NewsArticle|Article|BlogPosting|ReportageNewsArticle)$/i.test(t),
+        )
+        if (isArticle && typeof obj.articleBody === 'string' && obj.articleBody.trim().length > 300) {
+          return obj.articleBody.trim()
+        }
+      }
+    } catch {
+      // Invalid JSON — skip
+    }
+  }
+  return null
+}
+
 export function parseHtml(input: ParseHtmlInput): ParseHtmlResult {
   const { html, articleUrl, cleanerConfig } = input
 
@@ -72,6 +97,9 @@ export function parseHtml(input: ParseHtmlInput): ParseHtmlResult {
     .querySelector('meta[property="og:title"]')
     ?.getAttribute('content')?.trim() || null
   const htmlTitle = metaDoc.querySelector('title')?.textContent?.trim() || null
+
+  // Extract before preClean removes script tags.
+  const jsonLdBody = extractJsonLdArticleBody(metaDoc)
 
   // Phase 1: pre-clean (safe element removal before Readability)
   const domForCleaning = new JSDOM(html, { url: articleUrl, virtualConsole: vc })
@@ -94,6 +122,20 @@ export function parseHtml(input: ParseHtmlInput): ParseHtmlResult {
     const bestTextLen = bestBlock.el.textContent?.replace(/\s+/g, ' ').trim().length || 0
     if (bestTextLen > readabilityTextLen * 2) {
       contentHtml = bestBlock.el.innerHTML
+      readabilityTextLen = bestTextLen
+    }
+  }
+
+  if (jsonLdBody) {
+    const jsonLdLen = jsonLdBody.replace(/\s+/g, ' ').trim().length
+    if (jsonLdLen > readabilityTextLen * 1.5) {
+      // articleBody is untrusted plain text; escape it before HTML conversion.
+      const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      contentHtml = jsonLdBody
+        .split(/\n{2,}/)
+        .map(p => `<p>${escapeHtml(p.trim().replace(/\n/g, ' '))}</p>`)
+        .filter(p => p.length > 7)
+        .join('\n')
     }
   }
 
