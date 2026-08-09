@@ -20,7 +20,7 @@ describe('RelevanceSection', () => {
     mockApiPut.mockResolvedValue({ brief: 'Climate policy', revision: 1 })
     render(<RelevanceSection />)
     expect(screen.getByText(/will not receive relevance scores yet/)).toBeTruthy()
-    await user.type(screen.getByLabelText('Your relevance brief'), 'Climate policy')
+    await user.type(screen.getByLabelText('Relevance brief'), 'Climate policy')
     await user.click(screen.getByRole('button', { name: 'Save brief' }))
     await waitFor(() => expect(mockApiPut).toHaveBeenCalledWith('/api/settings/relevance', { brief: 'Climate policy' }))
     expect(screen.getByText(/existing articles are not automatically rescored/)).toBeTruthy()

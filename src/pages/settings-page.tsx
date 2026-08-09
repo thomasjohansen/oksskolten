@@ -7,12 +7,12 @@ import { PasswordSettings } from '../components/settings/password-settings'
 import { PasskeySettings } from '../components/settings/passkey-settings'
 import { GitHubOAuthSettings } from '../components/settings/github-oauth-settings'
 import { ApiTokenSettings } from '../components/settings/api-token-settings'
-import { ImageStorageSettings } from '../components/settings/image-storage-settings'
 import { GeneralTab } from './settings/general-tab'
 import { LabelsSection } from './settings/sections/labels-section'
 import { FeedsSection } from './settings/sections/feeds-section'
 const AppearanceTab = lazy(() => import('./settings/appearance-tab').then(m => ({ default: m.AppearanceTab })))
 import { IntegrationTab } from './settings/integration-tab'
+import { PluginsTab } from './settings/plugins-tab'
 import { DataTab } from './settings/data-tab'
 import { Separator } from '@/components/ui/separator'
 
@@ -82,7 +82,7 @@ export function SettingsPage() {
           )}
 
           {tab === 'plugins' && (
-            <ImageStorageSettings />
+            <PluginsTab />
           )}
 
           {tab === 'appearance' && (
