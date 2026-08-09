@@ -17,12 +17,13 @@ let swrInfiniteReturn: any = {
   isValidating: false,
   mutate: vi.fn(),
 }
+let swrInfiniteKey: ((pageIndex: number, previousPageData: any) => string | null) | undefined
 
 // Control useSWR return value for /api/feeds
 let swrFeedsData: any = undefined
 
 vi.mock('swr/infinite', () => ({
-  default: () => swrInfiniteReturn,
+  default: (key: typeof swrInfiniteKey) => { swrInfiniteKey = key; return swrInfiniteReturn },
 }))
 
 vi.mock('swr', async () => {
@@ -189,6 +190,7 @@ describe('ArticleList', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     swrFeedsData = undefined
+    swrInfiniteKey = undefined
     mockSettings.autoMarkRead = 'off' as any
     // Stub IntersectionObserver for tests that enable autoMarkRead
     vi.stubGlobal('IntersectionObserver', class {
@@ -228,6 +230,21 @@ describe('ArticleList', () => {
     }
     renderArticleList()
     expect(screen.getByText('No articles')).toBeTruthy()
+  })
+
+  it('requests relevance sorting from the URL and exposes the selected sort', () => {
+    swrInfiniteReturn = {
+      data: [{ articles: [], total: 0, has_more: false }],
+      error: undefined,
+      size: 1,
+      setSize: vi.fn(),
+      isLoading: false,
+      isValidating: false,
+      mutate: vi.fn(),
+    }
+    renderArticleList('/inbox?sort=relevance')
+    expect(swrInfiniteKey?.(0, null)).toContain('sort=relevance')
+    expect((screen.getByRole('combobox', { name: 'Sort articles' }) as HTMLSelectElement).value).toBe('relevance')
   })
 
   it('shows error state with retry button', () => {

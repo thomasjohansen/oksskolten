@@ -56,6 +56,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
   const isLikes = location.pathname === '/likes'
   const isHistory = location.pathname === '/history'
   const isClips = location.pathname === '/clips'
+  const isRelevanceSorted = isInbox && new URLSearchParams(location.search).get('sort') === 'relevance'
   const isCollectionView = isBookmarks || isLikes || isHistory || isClips
 
   const { data: feedsData } = useSWR<{ feeds: FeedWithCounts[] }>('/api/feeds', fetcher)
@@ -99,6 +100,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
     if (bookmarkedOnly) params.set('bookmarked', '1')
     if (likedOnly) params.set('liked', '1')
     if (readOnly) params.set('read', '1')
+    if (isRelevanceSorted) params.set('sort', 'relevance')
     if (noFloor) params.set('no_floor', '1')
     params.set('limit', String(PAGE_SIZE))
     params.set('offset', String(pageIndex * PAGE_SIZE))
@@ -490,6 +492,29 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
           await mutate()
         }
       }} />}
+
+      {isInbox && (
+        <div className="flex items-center justify-end px-4 md:px-6 mb-3">
+          <label className="text-xs text-muted flex items-center gap-2">
+            Sort
+            <select
+              aria-label="Sort articles"
+              value={isRelevanceSorted ? 'relevance' : 'newest'}
+              onChange={event => {
+                const params = new URLSearchParams(location.search)
+                if (event.target.value === 'relevance') params.set('sort', 'relevance')
+                else params.delete('sort')
+                const query = params.toString()
+                void navigate(`${location.pathname}${query ? `?${query}` : ''}`)
+              }}
+              className="rounded-md border border-border bg-bg px-2 py-1.5 text-xs text-text"
+            >
+              <option value="newest">Newest first</option>
+              <option value="relevance">Most relevant</option>
+            </select>
+          </label>
+        </div>
+      )}
 
       {currentFeed && currentFeed.type !== 'clip' && settings.showFeedActivity === 'on' && (
         <FeedMetricsBar feed={currentFeed} />

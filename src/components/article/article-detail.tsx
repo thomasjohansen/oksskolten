@@ -26,6 +26,7 @@ import { ArticleSummarySection } from './article-summary-section'
 import { ArticleTranslationBanner } from './article-translation-banner'
 import { ArticleContentBody } from './article-content-body'
 import { ArticleSimilarBanner } from './article-similar-banner'
+import { ArticleRelevanceCard } from './article-relevance-card'
 import type { ArticleDetail as ArticleDetailData } from '../../../shared/types'
 
 interface ArticleDetailProps {
@@ -221,6 +222,8 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
       {chatPosition === 'inline' && chat.open && (
         <ChatInlinePanel articleId={article.id} onClose={chat.close} />
       )}
+
+      {article.relevance && <ArticleRelevanceCard score={article.relevance.score} reason={article.relevance.reason} />}
 
       {/* Summary */}
       <ArticleSummarySection

@@ -9,6 +9,7 @@ import { apiKeyRoutes } from './apiKeys.js'
 import { statsRoutes } from './stats.js'
 import { labelRoutes } from './labels.js'
 import { summaryRoutes } from './summary.js'
+import { relevanceRoutes } from './relevance.js'
 
 export function registerApi(app: FastifyInstance): void {
   app.register(async function apiRoutes(api) {
@@ -24,5 +25,6 @@ export function registerApi(app: FastifyInstance): void {
     await api.register(statsRoutes)
     await api.register(labelRoutes)
     await api.register(summaryRoutes)
+    await api.register(relevanceRoutes)
   })
 }

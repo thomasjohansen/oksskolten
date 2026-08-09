@@ -7,6 +7,7 @@ import { RETRY_MAX_ATTEMPTS, RETRY_BATCH_LIMIT } from '../fetcher/util.js'
 import { deleteArticleImages } from '../fetcher/article-images.js'
 import { logger } from '../logger.js'
 import { enqueueSummaryForArticle } from '../plugins/summary.js'
+import { enqueueRelevanceForArticle } from '../plugins/relevance.js'
 
 const log = logger.child('retention')
 
@@ -96,7 +97,7 @@ export function getArticles(opts: {
   bookmarked?: boolean
   liked?: boolean
   read?: boolean
-  sort?: 'score'
+  sort?: 'score' | 'relevance'
   limit: number
   offset: number
   smartFloor?: boolean
@@ -177,7 +178,9 @@ export function getArticles(opts: {
     : undefined
 
   const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
-  const orderBy = opts.sort === 'score'
+  const orderBy = opts.sort === 'relevance'
+    ? 'COALESCE(r.score, -1) DESC, a.published_at DESC'
+    : opts.sort === 'score'
     ? 'a.score DESC, a.published_at DESC'
     : opts.liked ? 'a.liked_at DESC' : opts.read ? 'a.read_at DESC' : 'a.published_at DESC'
 
@@ -196,6 +199,7 @@ export function getArticles(opts: {
            a.score
     FROM active_articles a
     JOIN feeds f ON a.feed_id = f.id
+    LEFT JOIN article_relevance r ON r.article_id = a.id
     ${where}
     ORDER BY ${orderBy}
     LIMIT @_limit OFFSET @_offset
@@ -389,6 +393,7 @@ export function insertArticle(data: {
   })
   const articleId = info.lastInsertRowid as number
   if (data.full_text?.trim()) enqueueSummaryForArticle(articleId)
+  if (data.full_text?.trim()) enqueueRelevanceForArticle(articleId)
   updateArticleLabels(articleId)
   const doc = buildMeiliDoc(articleId)
   if (doc) syncArticleToSearch(doc)
@@ -433,6 +438,7 @@ export function updateArticleContent(
   if (fields.length === 0) return
   runNamed(`UPDATE articles SET ${fields.join(', ')} WHERE id = @id`, params)
   if (data.full_text?.trim()) enqueueSummaryForArticle(articleId)
+  if (data.full_text?.trim()) enqueueRelevanceForArticle(articleId)
   // full_text feeds label rule matching; recompute membership when it changes.
   if (data.full_text !== undefined) updateArticleLabels(articleId)
   const doc = buildMeiliDoc(articleId)

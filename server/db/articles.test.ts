@@ -394,6 +394,16 @@ describe('updateArticleContent edge cases', () => {
 // --- Score persistence (Phase 2) ---
 
 describe('score persistence', () => {
+  it('orders articles by relevance score and leaves unscored articles last', () => {
+    const feed = seedFeed()
+    const lower = seedArticle(feed.id, { url: 'https://example.com/relevance-low' })
+    const higher = seedArticle(feed.id, { url: 'https://example.com/relevance-high' })
+    getDb().prepare("INSERT INTO article_relevance (article_id, score, reason, content_hash, brief_hash, brief_revision) VALUES (?, 40, 'Somewhat relevant', 'a', 'b', 1), (?, 90, 'Highly relevant', 'c', 'd', 1)").run(lower, higher)
+
+    const { articles } = getArticles({ sort: 'relevance', limit: 100, offset: 0 })
+    expect(articles.map(article => article.id)).toEqual([higher, lower])
+  })
+
   it('recalculateScores updates only qualifying articles', () => {
     const feed = seedFeed()
     const id1 = seedArticle(feed.id, { url: 'https://example.com/s1' })

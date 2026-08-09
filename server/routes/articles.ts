@@ -37,6 +37,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { dataPath } from '../paths.js'
 import { NumericIdParams, parseOrBadRequest } from '../lib/validation.js'
+import { getArticleRelevance } from '../plugins/relevance.js'
 
 function getTranslateTargetLang(): string {
   return getSetting('translate.target_lang') || getSetting('general.language') || DEFAULT_LANGUAGE
@@ -221,11 +222,11 @@ export async function articleRoutes(api: FastifyInstance): Promise<void> {
     const bookmarked = query.bookmarked === '1'
     const liked = query.liked === '1'
     const read = query.read === '1'
-    const sort = query.sort === 'score' ? 'score' as const : undefined
+    const sort = query.sort === 'relevance' ? 'relevance' as const : query.sort === 'score' ? 'score' as const : undefined
     const noFloor = query.no_floor === '1'
 
     const isClipFeed = feedId != null && getClipFeed()?.id === feedId
-    const smartFloor = !noFloor && !isClipFeed && !unread && !bookmarked && !liked && !read
+    const smartFloor = !noFloor && !isClipFeed && !unread && !bookmarked && !liked && !read && sort !== 'relevance'
     // Fetch limit+1 to determine has_more without relying on a live total count.
     // This prevents a race condition where auto-mark-read shrinks the total between
     // page fetches, causing has_more to go false prematurely (offset + count < shrunkTotal).
@@ -290,7 +291,7 @@ export async function articleRoutes(api: FastifyInstance): Promise<void> {
       reply.status(404).send({ error: 'Article not found' })
       return
     }
-    reply.send({ ...article, imageArchivingEnabled: isImageArchivingEnabled() })
+    reply.send({ ...article, relevance: getArticleRelevance(article.id), imageArchivingEnabled: isImageArchivingEnabled() })
   })
 
   api.post('/api/articles/check-urls', { preHandler: [requireJson] }, async (request, reply) => {

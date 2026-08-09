@@ -49,6 +49,17 @@ Preserve Markdown formatting. In particular, keep blockquote lines starting with
 --- Article body ---
 {{article}}`
 
+const RELEVANCE_PROMPT = (brief: string) =>
+  `Evaluate how relevant the following article is to this user's relevance brief.
+Return only strict JSON with exactly this shape: {"score": 0, "reason": "concise reason"}.
+The score must be an integer from 0 to 100. The reason must be one concise sentence, at most 280 characters.
+
+--- User relevance brief ---
+${brief}
+
+--- Article body ---
+{{article}}`
+
 function applyArticle(template: string, fullText: string): string {
   return template.split('{{article}}').join(fullText)
 }
@@ -128,9 +139,22 @@ const translateConfig: AiTaskConfig = {
   buildPrompt: buildTranslatePrompt,
 }
 
+const relevanceConfig: AiTaskConfig = {
+  providerKey: 'summary.provider',
+  modelKey: 'summary.model',
+  defaultModel: TASK_DEFAULTS.summarize.model,
+  maxTokens: 512,
+  buildPrompt: text => applyArticle(RELEVANCE_PROMPT(getSetting('relevance.brief') || ''), text),
+}
+
 export async function summarizeArticle(fullText: string): Promise<{ summary: string } & AiTextResult> {
   const r = await runAiTask(summarizeConfig, fullText)
   return { summary: r.text, inputTokens: r.inputTokens, outputTokens: r.outputTokens, billingMode: r.billingMode, model: r.model }
+}
+
+export async function assessArticleRelevance(fullText: string, brief: string): Promise<unknown> {
+  const r = await runAiTask({ ...relevanceConfig, buildPrompt: text => applyArticle(RELEVANCE_PROMPT(brief), text) }, fullText)
+  try { return JSON.parse(r.text) as unknown } catch { throw new Error('Invalid relevance JSON') }
 }
 
 export async function streamSummarizeArticle(
