@@ -6,6 +6,7 @@ import { syncArticleToSearch, deleteArticleFromSearch, deleteArticlesFromSearch,
 import { RETRY_MAX_ATTEMPTS, RETRY_BATCH_LIMIT } from '../fetcher/util.js'
 import { deleteArticleImages } from '../fetcher/article-images.js'
 import { logger } from '../logger.js'
+import { enqueueSummaryForArticle } from '../plugins/summary.js'
 
 const log = logger.child('retention')
 
@@ -387,6 +388,7 @@ export function insertArticle(data: {
     last_error: data.last_error ?? null,
   })
   const articleId = info.lastInsertRowid as number
+  if (data.full_text?.trim()) enqueueSummaryForArticle(articleId)
   updateArticleLabels(articleId)
   const doc = buildMeiliDoc(articleId)
   if (doc) syncArticleToSearch(doc)
@@ -430,6 +432,7 @@ export function updateArticleContent(
   }
   if (fields.length === 0) return
   runNamed(`UPDATE articles SET ${fields.join(', ')} WHERE id = @id`, params)
+  if (data.full_text?.trim()) enqueueSummaryForArticle(articleId)
   // full_text feeds label rule matching; recompute membership when it changes.
   if (data.full_text !== undefined) updateArticleLabels(articleId)
   const doc = buildMeiliDoc(articleId)

@@ -20,6 +20,7 @@ import { passkeyRoutes } from './passkeyRoutes.js'
 import { oauthRoutes } from './oauthRoutes.js'
 import { fetchAllFeeds } from './fetcher.js'
 import { ensureSearchIndex, rebuildSearchIndex, isSearchReady, syncAllScoredArticlesToSearch } from './search/sync.js'
+import { runSummaryJobs } from './plugins/summary.js'
 
 // --- Startup guards ---
 if (process.env.AUTH_DISABLED === '1' && process.env.NODE_ENV !== 'development') {
@@ -180,6 +181,10 @@ cronTasks.push(cron.schedule(CRON_SCHEDULE, async () => {
   activeFetchPromise = p
   await p
   activeFetchPromise = null
+}))
+
+cronTasks.push(cron.schedule('* * * * *', async () => {
+  try { await runSummaryJobs() } catch (err) { log.error('[cron] Summary worker error:', err) }
 }))
 
 // --- Score recalculation ---

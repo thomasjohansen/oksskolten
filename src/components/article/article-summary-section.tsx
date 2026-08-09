@@ -79,6 +79,13 @@ export function ArticleSummarySection({
         )
       })()}
 
+      {/* Automatic summary explanation */}
+      {summary === null && !summarizing && !summarizeError && (
+        <Callout>
+          <p className="text-sm text-muted">A summary will be generated automatically after import.</p>
+        </Callout>
+      )}
+
       {/* Error */}
       {summarizeError && !summarizing && (
         <Callout variant="error">

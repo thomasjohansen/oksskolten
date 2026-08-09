@@ -15,7 +15,6 @@ import { ChatFab } from '../chat/chat-fab'
 import { ConfirmDialog } from '../ui/confirm-dialog'
 import { useChatInline, ChatInlinePanel } from '../chat/chat-inline'
 import { useMetrics } from '../../hooks/use-metrics'
-import { useSummarize } from '../../hooks/use-summarize'
 import { useTranslate } from '../../hooks/use-translate'
 import { formatDetailDate } from '../../lib/dateFormat'
 import { useAppLayout } from '../../app'
@@ -48,7 +47,8 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
   const articleRef = useRef<HTMLElement>(null)
 
   const metrics = useMetrics()
-  const { summary, summarizing, streamingText, handleSummarize, summaryHtml, streamingHtml, error: summarizeError } = useSummarize(article, metrics)
+  const summary = article?.summary ?? null
+  const summaryHtml = useMemo(() => summary ? sanitizeHtml(renderMarkdown(summary)) : '', [summary])
   // Only pass translation to the hook if it matches the current locale; stale translations are treated as absent
   const isTranslationCurrent = article?.translated_lang === (translateTargetLang || locale)
   const translateInput = useMemo(() =>
@@ -208,9 +208,6 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
         hasTranslation={hasTranslation}
         translating={translating}
         onTranslate={handleTranslate}
-        summary={summary}
-        summarizing={summarizing}
-        onSummarize={handleSummarize}
         isBookmarked={!!isBookmarked}
         isLiked={isLiked}
         archivingImages={archivingImages}
@@ -228,12 +225,12 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
       {/* Summary */}
       <ArticleSummarySection
         summary={summary}
-        summarizing={summarizing}
-        streamingText={streamingText}
+        summarizing={false}
+        streamingText=""
         summaryHtml={summaryHtml}
-        streamingHtml={streamingHtml}
-        summarizeError={summarizeError}
-        metricsText={metrics.metrics && !translating ? metrics.formatMetrics() : null}
+        streamingHtml=""
+        summarizeError={null}
+        metricsText={null}
       />
 
       {/* Similar articles */}
@@ -257,7 +254,7 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
       )}
 
       {/* Translation metrics */}
-      {metrics.metrics && !summarizing && !translating && hasTranslation && (
+      {metrics.metrics && !translating && hasTranslation && (
         <p className="text-xs text-muted mb-4">
           {metrics.formatMetrics()}
         </p>
