@@ -27,6 +27,7 @@ import { ArticleTranslationBanner } from './article-translation-banner'
 import { ArticleContentBody } from './article-content-body'
 import { ArticleSimilarBanner } from './article-similar-banner'
 import { ArticleRelevanceCard } from './article-relevance-card'
+import { ArticleTopics } from './article-topics'
 import type { ArticleDetail as ArticleDetailData } from '../../../shared/types'
 
 interface ArticleDetailProps {
@@ -217,6 +218,8 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
         onArchiveImages={handleArchiveImages}
         onDelete={() => setDeleteConfirmOpen(true)}
       />
+
+      {article.topics && <ArticleTopics topics={article.topics.topics} />}
 
       {/* Inline Chat Panel */}
       {chatPosition === 'inline' && chat.open && (

@@ -8,6 +8,7 @@ import { deleteArticleImages } from '../fetcher/article-images.js'
 import { logger } from '../logger.js'
 import { enqueueSummaryForArticle } from '../plugins/summary.js'
 import { enqueueRelevanceForArticle } from '../plugins/relevance.js'
+import { enqueueTopicsForArticle } from '../plugins/topics.js'
 
 const log = logger.child('retention')
 
@@ -394,6 +395,7 @@ export function insertArticle(data: {
   const articleId = info.lastInsertRowid as number
   if (data.full_text?.trim()) enqueueSummaryForArticle(articleId)
   if (data.full_text?.trim()) enqueueRelevanceForArticle(articleId)
+  if (data.full_text?.trim()) enqueueTopicsForArticle(articleId)
   updateArticleLabels(articleId)
   const doc = buildMeiliDoc(articleId)
   if (doc) syncArticleToSearch(doc)
@@ -439,6 +441,7 @@ export function updateArticleContent(
   runNamed(`UPDATE articles SET ${fields.join(', ')} WHERE id = @id`, params)
   if (data.full_text?.trim()) enqueueSummaryForArticle(articleId)
   if (data.full_text?.trim()) enqueueRelevanceForArticle(articleId)
+  if (data.full_text?.trim()) enqueueTopicsForArticle(articleId)
   // full_text feeds label rule matching; recompute membership when it changes.
   if (data.full_text !== undefined) updateArticleLabels(articleId)
   const doc = buildMeiliDoc(articleId)

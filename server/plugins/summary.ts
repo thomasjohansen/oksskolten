@@ -87,13 +87,13 @@ export async function runSummaryJobs(options: { batchSize?: number; concurrency?
       const job = jobs[next++]
       if (!job.lease_token) continue
       try {
-        const before = db.prepare('SELECT full_text FROM articles WHERE id = ?').get(job.article_id) as { full_text: string | null } | undefined
+        const before = db.prepare('SELECT full_text, lang FROM articles WHERE id = ?').get(job.article_id) as { full_text: string | null; lang: string | null } | undefined
         if (!before?.full_text?.trim() || fullTextHash(before.full_text) !== job.full_text_hash) {
           db.prepare("UPDATE summary_jobs SET status = 'failed', error = 'Stale article content', available_at = ?, lease_token = NULL, lease_expires_at = NULL, updated_at = datetime('now') WHERE id = ? AND lease_token = ?").run(now, job.id, job.lease_token)
           enqueueSummaryForArticle(job.article_id)
           continue
         }
-        const result = await summarizeArticle(before.full_text)
+        const result = await summarizeArticle(before.full_text, before.lang)
         const current = db.prepare('SELECT full_text FROM articles WHERE id = ?').get(job.article_id) as { full_text: string | null } | undefined
         if (!current?.full_text?.trim() || fullTextHash(current.full_text) !== job.full_text_hash) {
           db.prepare("UPDATE summary_jobs SET status = 'failed', error = 'Stale article content', available_at = ?, lease_token = NULL, lease_expires_at = NULL, updated_at = datetime('now') WHERE id = ? AND lease_token = ?").run(now, job.id, job.lease_token)

@@ -38,6 +38,7 @@ import fs from 'node:fs'
 import { dataPath } from '../paths.js'
 import { NumericIdParams, parseOrBadRequest } from '../lib/validation.js'
 import { getArticleRelevance } from '../plugins/relevance.js'
+import { getArticleTopics } from '../plugins/topics.js'
 
 function getTranslateTargetLang(): string {
   return getSetting('translate.target_lang') || getSetting('general.language') || DEFAULT_LANGUAGE
@@ -291,7 +292,7 @@ export async function articleRoutes(api: FastifyInstance): Promise<void> {
       reply.status(404).send({ error: 'Article not found' })
       return
     }
-    reply.send({ ...article, relevance: getArticleRelevance(article.id), imageArchivingEnabled: isImageArchivingEnabled() })
+    reply.send({ ...article, relevance: getArticleRelevance(article.id), topics: getArticleTopics(article.id), imageArchivingEnabled: isImageArchivingEnabled() })
   })
 
   api.post('/api/articles/check-urls', { preHandler: [requireJson] }, async (request, reply) => {

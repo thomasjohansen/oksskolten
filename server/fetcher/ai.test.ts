@@ -122,6 +122,14 @@ describe('summarizeArticle', () => {
     expect(params.messages[0].content).toContain('My article content here')
   })
 
+  it('asks for the detected source language for Japanese articles', async () => {
+    mockCreateMessage.mockResolvedValue({ text: '要約', inputTokens: 0, outputTokens: 0 })
+    await summarizeArticle('これは日本語の記事本文です。気候政策について説明します。')
+    const params = mockCreateMessage.mock.calls[0][0]
+    expect(params.messages[0].content).toContain('Respond only in Japanese')
+    expect(params.messages[0].content).toContain('これは日本語の記事本文です')
+  })
+
   it('sets maxTokens to 2048 for summarize', async () => {
     mockCreateMessage.mockResolvedValue({ text: 'ok', inputTokens: 0, outputTokens: 0 })
     await summarizeArticle('text')

@@ -64,11 +64,12 @@ function applyArticle(template: string, fullText: string): string {
   return template.split('{{article}}').join(fullText)
 }
 
-function buildSummarizePrompt(fullText: string): string {
+function buildSummarizePrompt(fullText: string, sourceLanguage?: string | null): string {
   const custom = getSetting('prompt.summarize')
-  if (custom) return applyArticle(custom, fullText)
-  const lang = getSetting('general.language') || DEFAULT_LANGUAGE
-  return applyArticle(DEFAULT_SUMMARIZE_PROMPT(lang), fullText)
+  const lang = sourceLanguage || detectLanguage(fullText)
+  const languageInstruction = `Respond only in ${languageName(lang)}, the article's source language.`
+  if (custom) return `${languageInstruction}\n\n${applyArticle(custom, fullText)}`
+  return applyArticle(`${languageInstruction}\n\n${DEFAULT_SUMMARIZE_PROMPT(lang)}`, fullText)
 }
 
 function buildTranslatePrompt(fullText: string): string {
@@ -147,8 +148,19 @@ const relevanceConfig: AiTaskConfig = {
   buildPrompt: text => applyArticle(RELEVANCE_PROMPT(getSetting('relevance.brief') || ''), text),
 }
 
-export async function summarizeArticle(fullText: string): Promise<{ summary: string } & AiTextResult> {
-  const r = await runAiTask(summarizeConfig, fullText)
+const TOPICS_PROMPT = `Extract the main free-form topics represented by this article.
+Return only a strict JSON array of at most 7 short topic strings. Do not use a fixed taxonomy, labels, or categories. Use the article's own wording where useful.
+
+--- Article body ---
+{{article}}`
+
+const topicsConfig: AiTaskConfig = {
+  providerKey: 'summary.provider', modelKey: 'summary.model', defaultModel: TASK_DEFAULTS.summarize.model,
+  maxTokens: 512, buildPrompt: text => applyArticle(TOPICS_PROMPT, text),
+}
+
+export async function summarizeArticle(fullText: string, sourceLanguage?: string | null): Promise<{ summary: string } & AiTextResult> {
+  const r = await runAiTask({ ...summarizeConfig, buildPrompt: text => buildSummarizePrompt(text, sourceLanguage) }, fullText)
   return { summary: r.text, inputTokens: r.inputTokens, outputTokens: r.outputTokens, billingMode: r.billingMode, model: r.model }
 }
 
@@ -157,11 +169,17 @@ export async function assessArticleRelevance(fullText: string, brief: string): P
   try { return JSON.parse(r.text) as unknown } catch { throw new Error('Invalid relevance JSON') }
 }
 
+export async function extractArticleTopics(fullText: string): Promise<unknown> {
+  const r = await runAiTask(topicsConfig, fullText)
+  try { return JSON.parse(r.text) as unknown } catch { throw new Error('Invalid topics JSON') }
+}
+
 export async function streamSummarizeArticle(
   fullText: string,
   onText: (delta: string) => void,
+  sourceLanguage?: string | null,
 ): Promise<{ summary: string } & AiTextResult> {
-  const r = await runAiTask(summarizeConfig, fullText, onText)
+  const r = await runAiTask({ ...summarizeConfig, buildPrompt: text => buildSummarizePrompt(text, sourceLanguage) }, fullText, onText)
   return { summary: r.text, inputTokens: r.inputTokens, outputTokens: r.outputTokens, billingMode: r.billingMode, model: r.model }
 }
 
