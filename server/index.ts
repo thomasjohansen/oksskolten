@@ -19,10 +19,8 @@ import { authRoutes } from './authRoutes.js'
 import { passkeyRoutes } from './passkeyRoutes.js'
 import { oauthRoutes } from './oauthRoutes.js'
 import { fetchAllFeeds } from './fetcher.js'
+import { recoverArticleProcessing } from './plugins/article-processing.js'
 import { ensureSearchIndex, rebuildSearchIndex, isSearchReady, syncAllScoredArticlesToSearch } from './search/sync.js'
-import { runSummaryJobs } from './plugins/summary.js'
-import { runRelevanceJobs } from './plugins/relevance.js'
-import { runAiLabelJobs } from './plugins/ai-labels.js'
 
 // --- Startup guards ---
 if (process.env.AUTH_DISABLED === '1' && process.env.NODE_ENV !== 'development') {
@@ -185,14 +183,9 @@ cronTasks.push(cron.schedule(CRON_SCHEDULE, async () => {
   activeFetchPromise = null
 }))
 
-cronTasks.push(cron.schedule('* * * * *', async () => {
-  try { await runSummaryJobs() } catch (err) { log.error('[cron] Summary worker error:', err) }
-}))
-cronTasks.push(cron.schedule('* * * * *', async () => {
-  try { await runRelevanceJobs() } catch (err) { log.error('[cron] Relevance worker error:', err) }
-}))
-cronTasks.push(cron.schedule('* * * * *', async () => {
-  try { await runAiLabelJobs() } catch (err) { log.error('[cron] AI Labels worker error:', err) }
+const ARTICLE_PROCESSING_RECOVERY_SCHEDULE = process.env.ARTICLE_PROCESSING_RECOVERY_SCHEDULE || '*/5 * * * *'
+cronTasks.push(cron.schedule(ARTICLE_PROCESSING_RECOVERY_SCHEDULE, () => {
+  recoverArticleProcessing()
 }))
 
 // --- Score recalculation ---

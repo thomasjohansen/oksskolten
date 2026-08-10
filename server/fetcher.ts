@@ -26,6 +26,7 @@ import { computeInterval, computeEmpiricalInterval, sqliteFuture, DEFAULT_INTERV
 import { detectLanguage } from './fetcher/ai.js'
 import { autoSummarizeIfNeeded } from './fetcher/label-summarize.js'
 import { logger } from './logger.js'
+import { notifyArticleContentPersisted } from './plugins/article-processing.js'
 
 const log = logger.child('fetcher')
 
@@ -51,9 +52,9 @@ export type { AiTextResult, AiBillingMode } from './fetcher/ai.js'
  * feed whose stored body is shorter than `MIN_EXTRACTED_LENGTH`, swap in
  * the markdown-converted RSS excerpt when it's larger than what's stored.
  */
-function refreshStaleArticles(feedId: number, rssItems: RssItem[]): void {
+function refreshStaleArticles(feedId: number, rssItems: RssItem[]): number {
   const refreshCandidates = getArticlesNeedingRefresh(feedId, MIN_EXTRACTED_LENGTH)
-  if (refreshCandidates.length === 0) return
+  if (refreshCandidates.length === 0) return 0
   // Match RSS items against candidate articles using the same URL
   // normalization the rest of the DB layer uses. Without this, a RSS item
   // with a raw Unicode path won't line up with a stored article whose URL
@@ -61,6 +62,7 @@ function refreshStaleArticles(feedId: number, rssItems: RssItem[]): void {
   // be treated as rolled off the feed.
   const itemsByUrl = new Map(rssItems.map(i => [normalizeUrl(i.url), i]))
   const now = new Date().toISOString()
+  let changed = 0
   for (const candidate of refreshCandidates) {
     const rssItem = itemsByUrl.get(normalizeUrl(candidate.url))
     const currentLen = (candidate.full_text ?? '').replace(/\s+/g, ' ').trim().length
@@ -80,6 +82,7 @@ function refreshStaleArticles(feedId: number, rssItems: RssItem[]): void {
         last_refresh_attempt_at: now,
       })
       log.info({ url: candidate.url, prevLen: currentLen, newLen: mdLen }, 'refreshed stale article with RSS excerpt')
+      changed++
     } else {
       // Couldn't improve this one (no RSS excerpt, or excerpt no longer in
       // the current feed). Record the attempt so the backoff window kicks
@@ -89,6 +92,7 @@ function refreshStaleArticles(feedId: number, rssItems: RssItem[]): void {
       markArticleRefreshAttempted(candidate.id, now)
     }
   }
+  return changed
 }
 
 // --- Article content fetching (shared by feed pipeline & clip) ---
@@ -197,7 +201,7 @@ interface RetryArticle {
 type ArticleTask = NewArticle | RetryArticle
 
 /** Returns true if the retry article still has an error after processing. */
-async function processArticle(task: ArticleTask): Promise<boolean> {
+async function processArticle(task: ArticleTask): Promise<{ failed: boolean; persistedContent: boolean }> {
   const articleUrl = task.kind === 'new' ? task.url : task.article.url
 
   const content = await fetchArticleContent(articleUrl, {
@@ -209,6 +213,7 @@ async function processArticle(task: ArticleTask): Promise<boolean> {
   const effectiveLang = content.lang || (task.kind === 'retry' ? task.article.lang : null)
 
   // Persist
+  let persisted = false
   if (task.kind === 'new') {
     try {
       const articleId = insertArticle({
@@ -228,6 +233,7 @@ async function processArticle(task: ArticleTask): Promise<boolean> {
       void detectAndStoreSimilarArticles(articleId, task.title, task.feed_id, task.published_at)
       // Fire-and-forget: auto-summarize if article matches a label with auto_summarize=1
       void autoSummarizeIfNeeded(articleId, content.fullText)
+      persisted = true
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       if (!msg.includes('UNIQUE constraint failed')) {
@@ -242,8 +248,9 @@ async function processArticle(task: ArticleTask): Promise<boolean> {
       og_image: content.ogImage,
       last_error: content.lastError,
     })
+    persisted = true
   }
-  return !!content.lastError
+  return { failed: !!content.lastError, persistedContent: persisted && !!content.fullText?.trim() }
 }
 
 // --- Single feed fetch ---
@@ -294,7 +301,8 @@ export async function fetchSingleFeed(
 
   const urls = rssResult.items.map(i => i.url)
   const existing = getExistingArticleUrls(urls)
-  refreshStaleArticles(feed.id, rssResult.items)
+  const refreshedCount = refreshStaleArticles(feed.id, rssResult.items)
+  if (refreshedCount > 0) notifyArticleContentPersisted()
 
   const tasks: ArticleTask[] = rssResult.items
     .filter(item => !existing.has(item.url))
@@ -325,7 +333,8 @@ export async function fetchSingleFeed(
     tasks.map(task =>
       semaphore.run(async () => {
         try {
-          await processArticle(task)
+          const result = await processArticle(task)
+          if (result.persistedContent) notifyArticleContentPersisted()
           if (task.kind === 'new') {
             fetched++
             const doneEvent: FetchProgressEvent = { type: 'article-done', feed_id: feed.id, fetched, total }
@@ -393,7 +402,8 @@ export async function fetchAllFeeds(
 
           const urls = rssResult.items.map(i => i.url)
           const existing = getExistingArticleUrls(urls)
-          refreshStaleArticles(feed.id, rssResult.items)
+          const refreshedCount = refreshStaleArticles(feed.id, rssResult.items)
+          if (refreshedCount > 0) notifyArticleContentPersisted()
 
           const newItems: ArticleTask[] = rssResult.items
             .filter(item => !existing.has(item.url))
@@ -463,7 +473,9 @@ export async function fetchAllFeeds(
       processingSemaphore.run(async () => {
         let retryFailed = false
         try {
-          retryFailed = await processArticle(task)
+          const result = await processArticle(task)
+          retryFailed = result.failed
+          if (result.persistedContent) notifyArticleContentPersisted()
         } catch (err) {
           log.error('Article error:', err)
           retryFailed = true
