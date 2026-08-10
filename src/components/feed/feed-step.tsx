@@ -40,6 +40,22 @@ function isValidUrl(s: string): boolean {
   }
 }
 
+function canonicalUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim())
+    parsed.protocol = parsed.protocol.toLowerCase()
+    parsed.hostname = parsed.hostname.toLowerCase()
+    if ((parsed.protocol === 'http:' && parsed.port === '80') || (parsed.protocol === 'https:' && parsed.port === '443')) {
+      parsed.port = ''
+    }
+    parsed.pathname = parsed.pathname.replace(/\/+$/, '') || '/'
+    parsed.hash = ''
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
 function StepIndicator({ steps, done, t }: {
   steps: Record<StepName, StepState>
   done: boolean
@@ -263,6 +279,18 @@ export function FeedStep({ onClose, onCreated, onFetchStarted, categories }: Fee
     }
   }
 
+  function handlePageOnlyChoice() {
+    const enteredUrl = canonicalUrl(url)
+    const discoveredUrl = choiceNeeded ? canonicalUrl(choiceNeeded.rss_url) : null
+    const pageOnlyPayload = enteredUrl && discoveredUrl && enteredUrl === discoveredUrl
+      ? {
+          discovered_rss_url: choiceNeeded!.rss_url,
+          discovered_rss_title: choiceNeeded!.rss_title ?? undefined,
+        }
+      : { force_page_selector: true }
+    void handleSubmit(undefined, pageOnlyPayload)
+  }
+
   if (choiceNeeded) {
     return (
       <div className="space-y-3">
@@ -270,9 +298,9 @@ export function FeedStep({ onClose, onCreated, onFetchStarted, categories }: Fee
         {choiceNeeded.rss_title && (
           <p className="text-sm text-muted truncate">&ldquo;{choiceNeeded.rss_title}&rdquo;</p>
         )}
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <Button
-            className="flex-1"
+            className="min-w-0 flex-1 whitespace-normal text-center leading-tight"
             onClick={() => handleSubmit(undefined, {
               discovered_rss_url: choiceNeeded.rss_url,
               discovered_rss_title: choiceNeeded.rss_title ?? undefined,
@@ -282,8 +310,8 @@ export function FeedStep({ onClose, onCreated, onFetchStarted, categories }: Fee
           </Button>
           <Button
             variant="outline"
-            className="flex-1"
-            onClick={() => handleSubmit(undefined, { force_page_selector: true })}
+            className="min-w-0 flex-1 whitespace-normal text-center leading-tight"
+            onClick={handlePageOnlyChoice}
           >
             {t('modal.choiceThisPage')}
           </Button>

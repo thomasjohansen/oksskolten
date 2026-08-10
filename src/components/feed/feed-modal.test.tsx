@@ -233,6 +233,68 @@ describe('FeedModal', () => {
     fetchSpy.mockRestore()
   })
 
+  it('uses the discovered RSS URL when page-only is chosen for that same RSS URL', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(createSSEResponse([
+        'data: {"type":"choice_needed","rss_url":"https://EXAMPLE.com/feed/","rss_title":"Example feed"}',
+      ]))
+      .mockResolvedValueOnce(createSSEResponse([
+        'data: {"type":"done","feed":{"id":1,"rss_url":"https://example.com/feed","rss_bridge_url":null}}',
+      ]))
+
+    render(<FeedModal {...defaultProps} />)
+    await user.click(screen.getByText('Add an RSS feed from a URL'))
+    await user.type(screen.getByPlaceholderText('URL'), 'https://example.com/feed')
+    await user.click(screen.getByText('Add'))
+    await user.click(await screen.findByRole('button', { name: 'Subscribe to this page only' }))
+
+    await waitFor(() => expect(fetchSpy.mock.calls.filter(call => (call[1] as RequestInit | undefined)?.method === 'POST')).toHaveLength(2))
+    const request = fetchSpy.mock.calls[1][1] as RequestInit
+    expect(JSON.parse(request.body as string)).toMatchObject({
+      discovered_rss_url: 'https://EXAMPLE.com/feed/',
+      discovered_rss_title: 'Example feed',
+    })
+    expect(JSON.parse(request.body as string)).not.toHaveProperty('force_page_selector')
+    fetchSpy.mockRestore()
+  })
+
+  it('keeps the page selector payload when the entered HTML page differs from the discovered RSS URL', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(createSSEResponse([
+        'data: {"type":"choice_needed","rss_url":"https://example.com/feed","rss_title":"Example feed"}',
+      ]))
+      .mockResolvedValueOnce(createSSEResponse([
+        'data: {"type":"done","feed":{"id":1,"rss_url":"https://example.com/feed","rss_bridge_url":null}}',
+      ]))
+
+    render(<FeedModal {...defaultProps} />)
+    await user.click(screen.getByText('Add an RSS feed from a URL'))
+    await user.type(screen.getByPlaceholderText('URL'), 'https://example.com/article')
+    await user.click(screen.getByText('Add'))
+    await user.click(await screen.findByRole('button', { name: 'Subscribe to this page only' }))
+
+    await waitFor(() => expect(fetchSpy.mock.calls.filter(call => (call[1] as RequestInit | undefined)?.method === 'POST')).toHaveLength(2))
+    const request = fetchSpy.mock.calls[1][1] as RequestInit
+    expect(JSON.parse(request.body as string)).toMatchObject({ force_page_selector: true })
+    expect(JSON.parse(request.body as string)).not.toHaveProperty('discovered_rss_url')
+    fetchSpy.mockRestore()
+  })
+
+  it('keeps choice actions accessible and wraps them on narrow layouts', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValueOnce(createSSEResponse([
+      'data: {"type":"choice_needed","rss_url":"https://example.com/feed","rss_title":"Example feed"}',
+    ]))
+    render(<FeedModal {...defaultProps} />)
+    await user.click(screen.getByText('Add an RSS feed from a URL'))
+    await user.type(screen.getByPlaceholderText('URL'), 'https://example.com/article')
+    await user.click(screen.getByText('Add'))
+
+    const actions = await screen.findByRole('button', { name: 'Subscribe to this page only' })
+    expect(actions.parentElement?.className).toContain('flex-col')
+    expect(actions.className).toContain('min-w-0')
+    expect(screen.getByRole('button', { name: 'Subscribe to the whole site' })).toBeTruthy()
+  })
+
   it('non-SSE error response (400) shows error', async () => {
     const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValueOnce(
       new Response(JSON.stringify({ error: 'Invalid URL' }), {
