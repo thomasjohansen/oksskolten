@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { getDb } from '../db/connection.js'
 import { extractArticleTopics } from '../fetcher/ai.js'
+import { isStaticPluginEnabled } from './controls.js'
 
 export const TOPICS_PLUGIN_MANIFEST = Object.freeze({ id: 'omos.topics', name: 'Topics', version: '1.0.0', kind: 'bundled-first-party' })
 const MAX_ATTEMPTS = 5; const LEASE_MS = 120_000; const MAX_BACKOFF_MS = 30 * 60 * 1000; const MAX_TOPICS = 7; const MAX_TOPIC_LENGTH = 80
@@ -11,7 +12,7 @@ const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 
 export function enqueueTopicsForArticle(articleId: number): number | null {
   const article = getDb().prepare('SELECT full_text FROM articles WHERE id = ?').get(articleId) as { full_text: string | null } | undefined
-  if (!article?.full_text?.trim()) return null
+  if (!article?.full_text?.trim() || !isStaticPluginEnabled('omos.topics')) return null
   const contentHash = hash(article.full_text); const db = getDb()
   db.prepare('INSERT INTO topics_jobs (article_id, content_hash, available_at) VALUES (?, ?, ?) ON CONFLICT(article_id, content_hash) DO NOTHING').run(articleId, contentHash, Date.now())
   return (db.prepare('SELECT id FROM topics_jobs WHERE article_id = ? AND content_hash = ?').get(articleId, contentHash) as { id: number }).id
@@ -27,11 +28,13 @@ function validateTopics(value: unknown): string[] { if (!Array.isArray(value) ||
 
 export async function runTopicsJobs(options: { batchSize?: number; concurrency?: number; now?: number; random?: () => number } = {}): Promise<number> {
   const now = options.now ?? Date.now(); const random = options.random ?? Math.random; const batchSize = Math.max(1, Math.min(20, options.batchSize ?? 10)); const concurrency = Math.max(1, Math.min(batchSize, options.concurrency ?? 2)); const db = getDb(); recoverExpired(now)
+  if (!isStaticPluginEnabled('omos.topics')) return 0
   const jobs = db.prepare("SELECT * FROM topics_jobs WHERE status IN ('pending', 'failed') AND available_at <= ? ORDER BY available_at, id LIMIT ?").all(now, batchSize) as TopicsJob[]
   for (const job of jobs) { const token = randomUUID(); if (db.prepare("UPDATE topics_jobs SET status = 'running', attempts = attempts + 1, lease_token = ?, lease_expires_at = ?, updated_at = datetime('now') WHERE id = ? AND status IN ('pending', 'failed')").run(token, now + LEASE_MS, job.id).changes === 1) job.lease_token = token }
   let next = 0; const worker = async () => { while (next < jobs.length) { const job = jobs[next++]; if (!job.lease_token) continue; try {
     const before = db.prepare('SELECT full_text FROM articles WHERE id = ?').get(job.article_id) as { full_text: string | null } | undefined
     if (!before?.full_text?.trim() || hash(before.full_text) !== job.content_hash) throw new Error('Stale topics input')
+    if (!isStaticPluginEnabled('omos.topics')) { db.prepare("UPDATE topics_jobs SET status = 'superseded', error = 'Plugin disabled', completed_at = datetime('now'), lease_token = NULL, lease_expires_at = NULL WHERE id = ? AND lease_token = ?").run(job.id, job.lease_token); continue }
     const topics = validateTopics(await extractArticleTopics(before.full_text)); const current = db.prepare('SELECT full_text FROM articles WHERE id = ?').get(job.article_id) as { full_text: string | null } | undefined
     if (!current?.full_text?.trim() || hash(current.full_text) !== job.content_hash) { db.prepare("UPDATE topics_jobs SET status = 'superseded', error = 'Stale topics input', completed_at = datetime('now'), lease_token = NULL, lease_expires_at = NULL, updated_at = datetime('now') WHERE id = ? AND lease_token = ?").run(job.id, job.lease_token); enqueueTopicsForArticle(job.article_id); continue }
     db.transaction(() => { db.prepare(`INSERT INTO article_topics (article_id, topics_json, source_content_hash) VALUES (?, ?, ?) ON CONFLICT(article_id) DO UPDATE SET topics_json = excluded.topics_json, source_content_hash = excluded.source_content_hash, updated_at = datetime('now')`).run(job.article_id, JSON.stringify(topics), job.content_hash); db.prepare("UPDATE topics_jobs SET status = 'succeeded', lease_token = NULL, lease_expires_at = NULL, completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND lease_token = ?").run(job.id, job.lease_token) })()

@@ -12,6 +12,7 @@ import { summaryRoutes } from './summary.js'
 import { relevanceRoutes } from './relevance.js'
 import { topicsRoutes } from './topics.js'
 import { reprocessRoutes } from './reprocess.js'
+import { pluginControlRoutes } from './plugins.js'
 
 export function registerApi(app: FastifyInstance): void {
   app.register(async function apiRoutes(api) {
@@ -30,5 +31,6 @@ export function registerApi(app: FastifyInstance): void {
     await api.register(relevanceRoutes)
     await api.register(topicsRoutes)
     await api.register(reprocessRoutes)
+    await api.register(pluginControlRoutes)
   })
 }

@@ -226,7 +226,7 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
         <ChatInlinePanel articleId={article.id} onClose={chat.close} />
       )}
 
-      {article.relevance && <ArticleRelevanceCard score={article.relevance.score} reason={article.relevance.reason} />}
+      {article.relevance && <ArticleRelevanceCard score={article.relevance.score} reason={article.relevance.reason} signals={article.relevance.signals} />}
 
       {/* Summary */}
       <ArticleSummarySection

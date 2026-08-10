@@ -9,7 +9,9 @@ vi.mock('../fetcher/ai.js', async () => {
   return { ...actual, assessArticleRelevance }
 })
 
-import { getRelevanceBrief, setRelevanceBrief, enqueueRelevanceForArticle, getRelevanceJob, getArticleRelevance, runRelevanceJobs } from './relevance.js'
+import { DEFAULT_RELEVANCE_PROFILE, getRelevanceBrief, setRelevanceBrief, enqueueRelevanceForArticle, getRelevanceJob, getArticleRelevance, runRelevanceJobs, computeRelevanceScore, getRelevanceProfile, setRelevanceProfile } from './relevance.js'
+
+const signals = (value: number, reason = 'Evidence signal.') => Object.fromEntries(['evidence_credibility', 'public_significance', 'information_value', 'constructive_positive_impact', 'clickbait_penalty', 'paywall_penalty', 'distressing_conflict_war_penalty'].map(key => [key, { value, reason }]))
 
 beforeEach(() => {
   setupTestDb()
@@ -22,6 +24,13 @@ function article(content = 'article body'): number {
 }
 
 describe('bundled Relevance plugin', () => {
+  it('validates versioned Balanced profiles and computes weighted scores deterministically', () => {
+    expect(() => setRelevanceProfile({ version: 1, name: 'Balanced', weights: { ...DEFAULT_RELEVANCE_PROFILE.weights, evidence_credibility: 2 } })).toThrow(/weight/i)
+    const profile = { ...DEFAULT_RELEVANCE_PROFILE, weights: { ...DEFAULT_RELEVANCE_PROFILE.weights } }
+    const value = signals(100)
+    expect(computeRelevanceScore(value as never, profile)).toBe(50)
+    expect(getRelevanceProfile().profile.name).toBe('Balanced')
+  })
   it('does nothing without a non-empty brief', () => {
     const id = article()
     expect(getRelevanceBrief()).toMatchObject({ brief: null, revision: 0 })
@@ -53,27 +62,27 @@ describe('bundled Relevance plugin', () => {
 
   it('validates and persists a successful score and concise reason', async () => {
     setRelevanceBrief('Articles about climate policy')
-    assessArticleRelevance.mockResolvedValue({ score: 87, reason: 'Directly covers climate policy.' })
+    assessArticleRelevance.mockResolvedValue(signals(0, 'Directly covers climate policy.'))
     const id = article()
     enqueueRelevanceForArticle(id)
     await runRelevanceJobs()
-    expect(getArticleRelevance(id)).toMatchObject({ score: 87, reason: 'Directly covers climate policy.' })
+    expect(getArticleRelevance(id)).toMatchObject({ score: 0, reason: 'Directly covers climate policy.' })
     expect(getRelevanceJob(id)).toMatchObject({ status: 'succeeded' })
   })
 
   it('rejects invalid score or reason as a retryable failure', async () => {
     setRelevanceBrief('Articles about climate policy')
-    assessArticleRelevance.mockResolvedValue({ score: 101, reason: 'x' })
+    assessArticleRelevance.mockResolvedValue({ ...signals(0), evidence_credibility: { value: 101, reason: 'x' } })
     const id = article()
     enqueueRelevanceForArticle(id)
     await runRelevanceJobs()
-    expect(getRelevanceJob(id)).toMatchObject({ status: 'failed', error: expect.stringMatching(/score/i) })
+    expect(getRelevanceJob(id)).toMatchObject({ status: 'failed', error: expect.stringMatching(/signal/i) })
   })
 
   it('ignores stale content and stale brief results', async () => {
     setRelevanceBrief('old brief')
     let release!: () => void
-    assessArticleRelevance.mockImplementation(async () => { await new Promise<void>(resolve => { release = resolve }); return { score: 80, reason: 'stale' } })
+    assessArticleRelevance.mockImplementation(async () => { await new Promise<void>(resolve => { release = resolve }); return signals(80, 'stale') })
     const id = article()
     enqueueRelevanceForArticle(id)
     const run = runRelevanceJobs()

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { getDb } from '../db/connection.js'
 import { summarizeArticle } from '../fetcher/ai.js'
+import { isStaticPluginEnabled } from './controls.js'
 
 export const SUMMARY_PLUGIN_MANIFEST = Object.freeze({
   id: 'omos.summary',
@@ -27,7 +28,7 @@ export function fullTextHash(text: string): string {
 export function enqueueSummaryForArticle(articleId: number): number | null {
   const db = getDb()
   const article = db.prepare('SELECT full_text FROM articles WHERE id = ?').get(articleId) as { full_text: string | null } | undefined
-  if (!article?.full_text?.trim()) return null
+  if (!article?.full_text?.trim() || !isStaticPluginEnabled('omos.summary')) return null
   const hash = fullTextHash(article.full_text)
   const now = Date.now()
   db.prepare(`INSERT INTO summary_jobs (article_id, full_text_hash, available_at)
@@ -74,6 +75,7 @@ export async function runSummaryJobs(options: { batchSize?: number; concurrency?
   const batchSize = Math.max(1, Math.min(20, options.batchSize ?? 10))
   const concurrency = Math.max(1, Math.min(batchSize, options.concurrency ?? 2))
   const db = getDb()
+  if (!isStaticPluginEnabled('omos.summary')) return 0
   recoverExpired(now)
   const jobs = db.prepare("SELECT * FROM summary_jobs WHERE status IN ('pending', 'failed') AND available_at <= ? ORDER BY available_at, id LIMIT ?").all(now, batchSize) as SummaryJob[]
   for (const job of jobs) {
@@ -86,6 +88,7 @@ export async function runSummaryJobs(options: { batchSize?: number; concurrency?
     while (next < jobs.length) {
       const job = jobs[next++]
       if (!job.lease_token) continue
+      if (!isStaticPluginEnabled('omos.summary')) continue
       try {
         const before = db.prepare('SELECT full_text, lang FROM articles WHERE id = ?').get(job.article_id) as { full_text: string | null; lang: string | null } | undefined
         if (!before?.full_text?.trim() || fullTextHash(before.full_text) !== job.full_text_hash) {

@@ -1,111 +1,45 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { getDb } from '../db/connection.js'
 import { assessArticleRelevance } from '../fetcher/ai.js'
+import { isStaticPluginEnabled } from './controls.js'
 
-export const RELEVANCE_PLUGIN_MANIFEST = Object.freeze({ id: 'omos.relevance', name: 'Relevance', version: '1.0.0', kind: 'bundled-first-party' })
-const MAX_ATTEMPTS = 5
-const LEASE_MS = 120_000
-const MAX_BACKOFF_MS = 30 * 60 * 1000
+export const RELEVANCE_PLUGIN_MANIFEST = Object.freeze({ id: 'omos.relevance', name: 'Relevance', version: '2.0.0', kind: 'bundled-first-party' })
+const MAX_ATTEMPTS = 5; const LEASE_MS = 120_000; const MAX_BACKOFF_MS = 30 * 60 * 1000
+export const SIGNAL_KEYS = ['evidence_credibility', 'public_significance', 'information_value', 'constructive_positive_impact', 'clickbait_penalty', 'paywall_penalty', 'distressing_conflict_war_penalty'] as const
+type SignalKey = typeof SIGNAL_KEYS[number]
+export interface RelevanceProfile { version: 1; name: 'Balanced'; weights: Record<SignalKey, number> }
+export const DEFAULT_RELEVANCE_PROFILE: RelevanceProfile = { version: 1, name: 'Balanced', weights: { evidence_credibility: 0.2, public_significance: 0.2, information_value: 0.2, constructive_positive_impact: 0.15, clickbait_penalty: 0.1, paywall_penalty: 0.075, distressing_conflict_war_penalty: 0.075 } }
+export interface RelevanceSignal { value: number; reason: string }
+export interface RelevanceSignals extends Record<SignalKey, RelevanceSignal> {}
+export interface RelevanceJob { id: number; article_id: number; content_hash: string; brief_hash: string; brief_revision: number; status: 'pending' | 'running' | 'succeeded' | 'failed' | 'dead' | 'superseded'; attempts: number; available_at: number; lease_token: string | null; lease_expires_at: number | null; error: string | null; created_at: string; updated_at: string; completed_at: string | null }
+export interface ArticleRelevance { score: number; reason: string; signals: RelevanceSignals; content_hash: string; profile_hash: string | null; brief_revision: number; created_at: string; updated_at: string }
+const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 
-export type RelevanceJobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'dead' | 'superseded'
-export interface RelevanceJob {
-  id: number; article_id: number; content_hash: string; brief_hash: string; brief_revision: number
-  status: RelevanceJobStatus; attempts: number; available_at: number; lease_token: string | null
-  lease_expires_at: number | null; error: string | null; created_at: string; updated_at: string; completed_at: string | null
+export function validateRelevanceProfile(value: unknown): RelevanceProfile {
+  if (!value || typeof value !== 'object') throw new Error('Invalid relevance profile')
+  const input = value as { version?: unknown; name?: unknown; weights?: Record<string, unknown> }
+  if (input.version !== 1 || input.name !== 'Balanced' || !input.weights) throw new Error('Only the Balanced relevance profile is supported')
+  const weights = {} as Record<SignalKey, number>
+  let total = 0
+  for (const key of SIGNAL_KEYS) { const weight = input.weights[key]; if (typeof weight !== 'number' || !Number.isFinite(weight) || weight < 0 || weight > 1) throw new Error(`Invalid relevance weight: ${key}`); weights[key] = weight; total += weight }
+  if (Math.abs(total - 1) > 0.001) throw new Error('Relevance weights must sum to 1')
+  return { version: 1, name: 'Balanced', weights }
 }
-export interface ArticleRelevance { score: number; reason: string; content_hash: string; brief_hash: string; brief_revision: number; created_at: string; updated_at: string }
+export function getRelevanceProfile(): { profile: RelevanceProfile; revision: number; configured: boolean } { const row = getDb().prepare('SELECT profile_json, profile_configured, revision FROM relevance_config WHERE id = 1').get() as { profile_json: string; profile_configured: number; revision: number }; return { profile: validateRelevanceProfile(JSON.parse(row.profile_json)), revision: row.revision, configured: row.profile_configured === 1 } }
+export function setRelevanceProfile(value: unknown): number { const profile = validateRelevanceProfile(value); const db = getDb(); const current = getRelevanceProfile(); if (JSON.stringify(profile) === JSON.stringify(current.profile) && current.configured) return current.revision; const revision = current.revision + 1; db.prepare("UPDATE relevance_config SET profile_json = ?, profile_configured = 1, revision = ?, updated_at = datetime('now') WHERE id = 1").run(JSON.stringify(profile), revision); return revision }
 
-function hash(value: string): string { return createHash('sha256').update(value).digest('hex') }
-export function relevanceFingerprint(content: string, brief: string, revision: number): string { return hash(`${hash(content)}:${revision}:${hash(brief)}`) }
+// Compatibility helpers remain internal for older local callers; configuration APIs use structured profiles.
+export function getRelevanceBrief(): { brief: string | null; revision: number } { const row = getDb().prepare('SELECT brief, revision FROM relevance_config WHERE id = 1').get() as { brief: string | null; revision: number }; return { brief: row.brief, revision: row.revision } }
+export function setRelevanceBrief(value: string): number { const brief = value.trim(); const current = getRelevanceBrief(); const revision = brief === (current.brief ?? '') ? current.revision : current.revision + 1; getDb().prepare("UPDATE relevance_config SET brief = ?, profile_configured = ?, revision = ?, updated_at = datetime('now') WHERE id = 1").run(brief || null, brief ? 1 : 0, revision); return revision }
 
-export function getRelevanceBrief(): { brief: string | null; revision: number } {
-  const row = getDb().prepare('SELECT brief, revision FROM relevance_config WHERE id = 1').get() as { brief: string | null; revision: number }
-  return { brief: row.brief, revision: row.revision }
-}
+export function relevanceFingerprint(content: string, profile: RelevanceProfile, revision: number): string { return hash(`${hash(content)}:${revision}:${hash(JSON.stringify(profile))}`) }
+export function computeRelevanceScore(signals: RelevanceSignals, profile: RelevanceProfile): number { const positive = SIGNAL_KEYS.slice(0, 4).reduce((sum, key) => sum + signals[key].value * profile.weights[key], 0); const penalties = SIGNAL_KEYS.slice(4).reduce((sum, key) => sum + signals[key].value * profile.weights[key], 0); return Math.max(0, Math.min(100, Math.round(positive - penalties))) }
+function validateSignals(value: unknown): RelevanceSignals { if (!value || typeof value !== 'object') throw new Error('Invalid relevance signals'); const source = value as Record<string, unknown>; const signals = {} as RelevanceSignals; for (const key of SIGNAL_KEYS) { const raw = source[key] as { value?: unknown; reason?: unknown } | undefined; if (!raw || !Number.isInteger(raw.value) || (raw.value as number) < 0 || (raw.value as number) > 100) throw new Error(`Invalid relevance signal: ${key}`); if (typeof raw.reason !== 'string' || !raw.reason.trim() || raw.reason.trim().length > 280) throw new Error(`Invalid relevance reason: ${key}`); signals[key] = { value: raw.value as number, reason: raw.reason.trim() } } return signals }
 
-export function setRelevanceBrief(value: string): number {
-  const brief = value.trim()
-  const db = getDb()
-  const current = getRelevanceBrief()
-  if (brief === (current.brief ?? '')) return current.revision
-  const revision = current.revision + 1
-  db.transaction(() => {
-    db.prepare('UPDATE relevance_config SET brief = ?, revision = ?, updated_at = datetime(\'now\') WHERE id = 1').run(brief || null, revision)
-    if (brief) db.prepare('INSERT INTO relevance_brief_revisions (revision, brief) VALUES (?, ?)').run(revision, brief)
-  })()
-  return revision
-}
-
-export function enqueueRelevanceForArticle(articleId: number): number | null {
-  const article = getDb().prepare('SELECT full_text FROM articles WHERE id = ?').get(articleId) as { full_text: string | null } | undefined
-  const config = getRelevanceBrief()
-  if (!article?.full_text?.trim() || !config.brief) return null
-  const contentHash = hash(article.full_text)
-  const briefHash = hash(config.brief)
-  const db = getDb()
-  db.prepare(`INSERT INTO relevance_jobs (article_id, content_hash, brief_hash, brief_revision, available_at)
-    VALUES (?, ?, ?, ?, ?) ON CONFLICT(article_id, content_hash, brief_hash, brief_revision) DO NOTHING`).run(articleId, contentHash, briefHash, config.revision, Date.now())
-  const row = db.prepare('SELECT id FROM relevance_jobs WHERE article_id = ? AND content_hash = ? AND brief_hash = ? AND brief_revision = ?').get(articleId, contentHash, briefHash, config.revision) as { id: number }
-  return row.id
-}
-
+export function enqueueRelevanceForArticle(articleId: number): number | null { const article = getDb().prepare('SELECT full_text FROM articles WHERE id = ?').get(articleId) as { full_text: string | null } | undefined; if (!article?.full_text?.trim() || !isStaticPluginEnabled('omos.relevance')) return null; const { profile, revision, configured } = getRelevanceProfile(); if (!configured) return null; const contentHash = hash(article.full_text); const profileHash = hash(JSON.stringify(profile)); const db = getDb(); db.prepare('INSERT INTO relevance_jobs (article_id, content_hash, brief_hash, brief_revision, available_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(article_id, content_hash, brief_hash, brief_revision) DO NOTHING').run(articleId, contentHash, profileHash, revision, Date.now()); return (db.prepare('SELECT id FROM relevance_jobs WHERE article_id = ? AND content_hash = ? AND brief_hash = ? AND brief_revision = ?').get(articleId, contentHash, profileHash, revision) as { id: number }).id }
 export function getRelevanceJob(articleId: number): RelevanceJob | undefined { return getDb().prepare('SELECT * FROM relevance_jobs WHERE article_id = ? ORDER BY id DESC LIMIT 1').get(articleId) as RelevanceJob | undefined }
-export function getArticleRelevance(articleId: number): ArticleRelevance | null { return (getDb().prepare('SELECT * FROM article_relevance WHERE article_id = ?').get(articleId) as ArticleRelevance | undefined) ?? null }
+export function getArticleRelevance(articleId: number): ArticleRelevance | null { const row = getDb().prepare('SELECT * FROM article_relevance WHERE article_id = ?').get(articleId) as { signals_json: string; profile_hash: string | null; [key: string]: unknown } | undefined; if (!row) return null; return { ...row, signals: JSON.parse(row.signals_json) as RelevanceSignals } as unknown as ArticleRelevance }
 
-function retryAt(attempts: number, now: number, random: () => number): number {
-  const base = Math.min(MAX_BACKOFF_MS, 1_000 * (2 ** Math.max(0, attempts - 1)))
-  return now + base + Math.floor(random() * Math.min(base * 0.25, 30_000))
-}
-
-function recoverExpired(now: number): void {
-  const db = getDb()
-  const rows = db.prepare("SELECT id, attempts FROM relevance_jobs WHERE status = 'running' AND lease_expires_at <= ?").all(now) as Array<{ id: number; attempts: number }>
-  for (const row of rows) {
-    const dead = row.attempts >= MAX_ATTEMPTS
-    db.prepare(`UPDATE relevance_jobs SET status = ?, available_at = ?, completed_at = ${dead ? "datetime('now')" : 'completed_at'}, lease_token = NULL, lease_expires_at = NULL, updated_at = datetime('now') WHERE id = ?`).run(dead ? 'dead' : 'failed', dead ? now : retryAt(row.attempts, now, () => 0), row.id)
-  }
-}
-
-function validateResult(value: unknown): { score: number; reason: string } {
-  if (!value || typeof value !== 'object') throw new Error('Invalid relevance JSON')
-  const result = value as { score?: unknown; reason?: unknown }
-  if (!Number.isInteger(result.score) || (result.score as number) < 0 || (result.score as number) > 100) throw new Error('Relevance score must be an integer from 0 to 100')
-  if (typeof result.reason !== 'string' || !result.reason.trim() || result.reason.trim().length > 280) throw new Error('Relevance reason must be concise')
-  return { score: result.score as number, reason: result.reason.trim() }
-}
-
-export async function runRelevanceJobs(options: { batchSize?: number; concurrency?: number; now?: number; random?: () => number } = {}): Promise<number> {
-  const now = options.now ?? Date.now(); const random = options.random ?? Math.random
-  const batchSize = Math.max(1, Math.min(20, options.batchSize ?? 10)); const concurrency = Math.max(1, Math.min(batchSize, options.concurrency ?? 2)); const db = getDb()
-  recoverExpired(now)
-  const jobs = db.prepare("SELECT * FROM relevance_jobs WHERE status IN ('pending', 'failed') AND available_at <= ? ORDER BY available_at, id LIMIT ?").all(now, batchSize) as RelevanceJob[]
-  for (const job of jobs) { const token = randomUUID(); if (db.prepare("UPDATE relevance_jobs SET status = 'running', attempts = attempts + 1, lease_token = ?, lease_expires_at = ?, updated_at = datetime('now') WHERE id = ? AND status IN ('pending', 'failed')").run(token, now + LEASE_MS, job.id).changes === 1) job.lease_token = token }
-  let next = 0
-  const worker = async () => {
-    while (next < jobs.length) {
-      const job = jobs[next++]; if (!job.lease_token) continue
-      try {
-        const config = getRelevanceBrief()
-        if (!config.brief) {
-          db.prepare("UPDATE relevance_jobs SET status = 'superseded', error = 'Relevance brief is empty', completed_at = datetime('now'), lease_token = NULL, lease_expires_at = NULL, updated_at = datetime('now') WHERE id = ? AND lease_token = ?").run(job.id, job.lease_token)
-          continue
-        }
-        const before = db.prepare('SELECT full_text FROM articles WHERE id = ?').get(job.article_id) as { full_text: string | null } | undefined
-        if (!before?.full_text?.trim() || hash(before.full_text) !== job.content_hash || config.revision !== job.brief_revision || hash(config.brief) !== job.brief_hash) throw new Error('Stale relevance input')
-        const result = validateResult(await assessArticleRelevance(before.full_text, config.brief))
-        const current = getRelevanceBrief(); const article = db.prepare('SELECT full_text FROM articles WHERE id = ?').get(job.article_id) as { full_text: string | null } | undefined
-        if (!article?.full_text?.trim() || hash(article.full_text) !== job.content_hash || current.revision !== job.brief_revision || !current.brief || hash(current.brief) !== job.brief_hash) { db.prepare("UPDATE relevance_jobs SET status = 'superseded', error = 'Stale relevance input', completed_at = datetime('now'), lease_token = NULL, lease_expires_at = NULL, updated_at = datetime('now') WHERE id = ? AND lease_token = ?").run(job.id, job.lease_token); enqueueRelevanceForArticle(job.article_id); continue }
-        db.transaction(() => {
-          db.prepare(`INSERT INTO article_relevance (article_id, score, reason, content_hash, brief_hash, brief_revision) VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(article_id) DO UPDATE SET score = excluded.score, reason = excluded.reason, content_hash = excluded.content_hash, brief_hash = excluded.brief_hash, brief_revision = excluded.brief_revision, updated_at = datetime('now')`).run(job.article_id, result.score, result.reason, job.content_hash, job.brief_hash, job.brief_revision)
-          db.prepare("UPDATE relevance_jobs SET status = 'succeeded', lease_token = NULL, lease_expires_at = NULL, completed_at = datetime('now'), updated_at = datetime('now') WHERE id = ? AND lease_token = ?").run(job.id, job.lease_token)
-        })()
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error); const attempts = (db.prepare('SELECT attempts FROM relevance_jobs WHERE id = ?').get(job.id) as { attempts: number }).attempts; const dead = attempts >= MAX_ATTEMPTS
-        db.prepare(`UPDATE relevance_jobs SET status = ?, error = ?, available_at = ?, completed_at = ${dead || message === 'Stale relevance input' ? "datetime('now')" : 'completed_at'}, lease_token = NULL, lease_expires_at = NULL, updated_at = datetime('now') WHERE id = ? AND lease_token = ?`).run(message === 'Stale relevance input' ? 'superseded' : dead ? 'dead' : 'failed', message, dead ? now : retryAt(attempts, now, random), job.id, job.lease_token)
-        if (message === 'Stale relevance input') enqueueRelevanceForArticle(job.article_id)
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, worker)); return jobs.length
-}
+function retryAt(attempts: number, now: number, random: () => number): number { const base = Math.min(MAX_BACKOFF_MS, 1_000 * (2 ** Math.max(0, attempts - 1))); return now + base + Math.floor(random() * Math.min(base * 0.25, 30_000)) }
+function recoverExpired(now: number): void { const db = getDb(); const rows = db.prepare("SELECT id, attempts FROM relevance_jobs WHERE status = 'running' AND lease_expires_at <= ?").all(now) as Array<{ id: number; attempts: number }>; for (const row of rows) { const dead = row.attempts >= MAX_ATTEMPTS; db.prepare(`UPDATE relevance_jobs SET status = ?, available_at = ?, completed_at = ${dead ? "datetime('now')" : 'completed_at'}, lease_token = NULL, lease_expires_at = NULL WHERE id = ?`).run(dead ? 'dead' : 'failed', dead ? now : retryAt(row.attempts, now, () => 0), row.id) } }
+export async function runRelevanceJobs(options: { batchSize?: number; concurrency?: number; now?: number; random?: () => number } = {}): Promise<number> { if (!isStaticPluginEnabled('omos.relevance')) return 0; const now = options.now ?? Date.now(); const random = options.random ?? Math.random; const batchSize = Math.max(1, Math.min(20, options.batchSize ?? 10)); const concurrency = Math.max(1, Math.min(batchSize, options.concurrency ?? 2)); const db = getDb(); recoverExpired(now); const jobs = db.prepare("SELECT * FROM relevance_jobs WHERE status IN ('pending', 'failed') AND available_at <= ? ORDER BY available_at, id LIMIT ?").all(now, batchSize) as RelevanceJob[]; for (const job of jobs) { const token = randomUUID(); if (db.prepare("UPDATE relevance_jobs SET status = 'running', attempts = attempts + 1, lease_token = ?, lease_expires_at = ? WHERE id = ? AND status IN ('pending', 'failed')").run(token, now + LEASE_MS, job.id).changes === 1) job.lease_token = token } let next = 0; const worker = async () => { while (next < jobs.length) { const job = jobs[next++]; if (!job.lease_token || !isStaticPluginEnabled('omos.relevance')) continue; try { if (!getRelevanceBrief().brief) { db.prepare("UPDATE relevance_jobs SET status = 'superseded', error = 'Relevance brief is empty', completed_at = datetime('now'), lease_token = NULL, lease_expires_at = NULL WHERE id = ? AND lease_token = ?").run(job.id, job.lease_token); continue } const { profile, revision } = getRelevanceProfile(); const before = db.prepare('SELECT full_text, excerpt FROM articles WHERE id = ?').get(job.article_id) as { full_text: string | null; excerpt: string | null } | undefined; if (!before?.full_text?.trim() || hash(before.full_text) !== job.content_hash || revision !== job.brief_revision || hash(JSON.stringify(profile)) !== job.brief_hash) throw new Error('Stale relevance input'); const metadata = { has_full_text: true, has_teaser: !!before.excerpt, paywall: false }; const signals = validateSignals(await assessArticleRelevance(before.full_text, JSON.stringify(profile), metadata)); if (metadata.paywall) signals.paywall_penalty = { value: 100, reason: 'Application metadata indicates paywall access.' }; const current = getRelevanceProfile(); const article = db.prepare('SELECT full_text FROM articles WHERE id = ?').get(job.article_id) as { full_text: string | null } | undefined; if (!article?.full_text?.trim() || hash(article.full_text) !== job.content_hash || current.revision !== job.brief_revision || hash(JSON.stringify(current.profile)) !== job.brief_hash) throw new Error('Stale relevance input'); const score = computeRelevanceScore(signals, current.profile); db.transaction(() => { db.prepare(`INSERT INTO article_relevance (article_id, score, reason, content_hash, brief_hash, brief_revision, signals_json, profile_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(article_id) DO UPDATE SET score = excluded.score, reason = excluded.reason, content_hash = excluded.content_hash, brief_hash = excluded.brief_hash, brief_revision = excluded.brief_revision, signals_json = excluded.signals_json, profile_hash = excluded.profile_hash, updated_at = datetime('now')`).run(job.article_id, score, signals.evidence_credibility.reason, job.content_hash, job.brief_hash, job.brief_revision, JSON.stringify(signals), job.brief_hash); db.prepare("UPDATE relevance_jobs SET status = 'succeeded', lease_token = NULL, lease_expires_at = NULL, completed_at = datetime('now') WHERE id = ? AND lease_token = ?").run(job.id, job.lease_token) })() } catch (error) { const message = error instanceof Error ? error.message : String(error); const attempts = (db.prepare('SELECT attempts FROM relevance_jobs WHERE id = ?').get(job.id) as { attempts: number }).attempts; const dead = attempts >= MAX_ATTEMPTS; db.prepare(`UPDATE relevance_jobs SET status = ?, error = ?, available_at = ?, completed_at = ${dead || message === 'Stale relevance input' ? "datetime('now')" : 'completed_at'}, lease_token = NULL, lease_expires_at = NULL WHERE id = ? AND lease_token = ?`).run(message === 'Stale relevance input' ? 'superseded' : dead ? 'dead' : 'failed', message, dead ? now : retryAt(attempts, now, random), job.id, job.lease_token); if (message === 'Stale relevance input') enqueueRelevanceForArticle(job.article_id) } } }; await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, worker)); return jobs.length }

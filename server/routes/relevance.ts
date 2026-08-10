@@ -1,19 +1,19 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { getRelevanceBrief, setRelevanceBrief, getArticleRelevance } from '../plugins/relevance.js'
+import { getRelevanceBrief, setRelevanceBrief, getArticleRelevance, getRelevanceProfile, setRelevanceProfile } from '../plugins/relevance.js'
 import { requireJson } from '../auth.js'
 import { parseOrBadRequest } from '../lib/validation.js'
 import { getArticleById } from '../db.js'
 
-const BriefBody = z.object({ brief: z.string() })
+const BriefBody = z.object({ brief: z.string().optional(), profile: z.unknown().optional() }).refine(value => value.brief !== undefined || value.profile !== undefined, 'profile is required')
 
 export async function relevanceRoutes(api: FastifyInstance): Promise<void> {
-  api.get('/api/settings/relevance', async (_request, reply) => reply.send(getRelevanceBrief()))
+  api.get('/api/settings/relevance', async (_request, reply) => reply.send({ ...getRelevanceProfile(), brief: getRelevanceBrief().brief }))
   api.put('/api/settings/relevance', { preHandler: [requireJson] }, async (request, reply) => {
     const body = parseOrBadRequest(BriefBody, request.body, reply)
     if (!body) return
-    const revision = setRelevanceBrief(body.brief)
-    reply.send({ ...getRelevanceBrief(), revision })
+    const revision = body.profile !== undefined ? setRelevanceProfile(body.profile) : setRelevanceBrief(body.brief ?? '')
+    reply.send({ ...getRelevanceProfile(), brief: getRelevanceBrief().brief, revision })
   })
   api.get('/api/articles/:id/relevance', async (request, reply) => {
     const params = parseOrBadRequest(z.object({ id: z.coerce.number().int().positive() }), request.params, reply)

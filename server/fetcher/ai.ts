@@ -49,13 +49,13 @@ Preserve Markdown formatting. In particular, keep blockquote lines starting with
 --- Article body ---
 {{article}}`
 
-const RELEVANCE_PROMPT = (brief: string) =>
-  `Evaluate how relevant the following article is to this user's relevance brief.
-Return only strict JSON with exactly this shape: {"score": 0, "reason": "concise reason"}.
-The score must be an integer from 0 to 100. The reason must be one concise sentence, at most 280 characters.
+const RELEVANCE_PROMPT = (profile: string) =>
+  `Evaluate the following evidence signals for this article using the supplied Balanced profile.
+Return only strict JSON: {"evidence_credibility":{"value":0,"reason":"..."},"public_significance":{"value":0,"reason":"..."},"information_value":{"value":0,"reason":"..."},"constructive_positive_impact":{"value":0,"reason":"..."},"clickbait_penalty":{"value":0,"reason":"..."},"paywall_penalty":{"value":0,"reason":"..."},"distressing_conflict_war_penalty":{"value":0,"reason":"..."}}.
+Each value must be an integer from 0 to 100 and each reason one concise sentence, at most 280 characters. Assess signals from the article; do not claim to fact-check or establish truth.
 
---- User relevance brief ---
-${brief}
+--- Balanced profile ---
+${profile}
 
 --- Article body ---
 {{article}}`
@@ -164,8 +164,9 @@ export async function summarizeArticle(fullText: string, sourceLanguage?: string
   return { summary: r.text, inputTokens: r.inputTokens, outputTokens: r.outputTokens, billingMode: r.billingMode, model: r.model }
 }
 
-export async function assessArticleRelevance(fullText: string, brief: string): Promise<unknown> {
-  const r = await runAiTask({ ...relevanceConfig, buildPrompt: text => applyArticle(RELEVANCE_PROMPT(brief), text) }, fullText)
+export async function assessArticleRelevance(fullText: string, profile: string, metadata?: { has_full_text: boolean; has_teaser: boolean; paywall: boolean }): Promise<unknown> {
+  const metadataText = metadata ? `\n\n--- Application metadata (deterministic) ---\n${JSON.stringify(metadata)}` : ''
+  const r = await runAiTask({ ...relevanceConfig, buildPrompt: text => applyArticle(`${RELEVANCE_PROMPT(profile)}${metadataText}`, text) }, fullText)
   try { return JSON.parse(r.text) as unknown } catch { throw new Error('Invalid relevance JSON') }
 }
 

@@ -86,7 +86,7 @@ export interface ArticleDetail extends ArticleListItem {
   images_archived_at: string | null
   feed_type: 'rss' | 'clip'
   imageArchivingEnabled: boolean
-  relevance?: { score: number; reason: string; content_hash: string; brief_hash: string; brief_revision: number; created_at: string; updated_at: string } | null
+  relevance?: { score: number; reason: string; signals: Record<string, { value: number; reason: string }>; content_hash: string; profile_hash: string | null; brief_revision: number; created_at: string; updated_at: string } | null
   topics?: { topics: string[]; source_content_hash: string; created_at: string; updated_at: string } | null
 }
 
