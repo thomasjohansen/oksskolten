@@ -70,6 +70,34 @@ describe('bundled Relevance plugin', () => {
     expect(getRelevanceJob(id)).toMatchObject({ status: 'succeeded' })
   })
 
+  it('processes a configured structured profile without a legacy brief', async () => {
+    setRelevanceProfile(DEFAULT_RELEVANCE_PROFILE)
+    assessArticleRelevance.mockResolvedValue(signals(80, 'Structured profile result.'))
+    const id = article()
+    expect(enqueueRelevanceForArticle(id)).not.toBeNull()
+    await runRelevanceJobs()
+    expect(getArticleRelevance(id)).toMatchObject({ score: 40, reason: 'Structured profile result.' })
+    expect(getRelevanceJob(id)).toMatchObject({ status: 'succeeded' })
+  })
+
+  it('requeues only jobs superseded by the obsolete legacy brief guard', async () => {
+    setRelevanceProfile(DEFAULT_RELEVANCE_PROFILE)
+    assessArticleRelevance.mockResolvedValue(signals(80, 'Recovered result.'))
+    const id = article()
+    const jobId = enqueueRelevanceForArticle(id)
+    getDb().prepare("UPDATE relevance_jobs SET status = 'superseded', error = 'Relevance brief is empty', completed_at = datetime('now') WHERE id = ?").run(jobId)
+    expect(enqueueRelevanceForArticle(id)).toBe(jobId)
+    expect(getRelevanceJob(id)).toMatchObject({ status: 'pending', error: null })
+    await runRelevanceJobs()
+    expect(getRelevanceJob(id)).toMatchObject({ status: 'succeeded' })
+
+    const staleId = article('stale content')
+    const staleJobId = enqueueRelevanceForArticle(staleId)
+    getDb().prepare("UPDATE relevance_jobs SET status = 'superseded', error = 'Stale relevance input', completed_at = datetime('now') WHERE id = ?").run(staleJobId)
+    expect(enqueueRelevanceForArticle(staleId)).toBe(staleJobId)
+    expect(getRelevanceJob(staleId)).toMatchObject({ status: 'superseded', error: 'Stale relevance input' })
+  })
+
   it('rejects invalid score or reason as a retryable failure', async () => {
     setRelevanceBrief('Articles about climate policy')
     assessArticleRelevance.mockResolvedValue({ ...signals(0), evidence_credibility: { value: 101, reason: 'x' } })
