@@ -2,7 +2,7 @@ import { ImageStorageSettings } from '../../components/settings/image-storage-se
 import { RelevanceSection } from './sections/relevance-section'
 import { SummarySection } from './sections/summary-section'
 import { ReprocessSection } from './sections/reprocess-section'
-import { TopicsSection } from './sections/topics-section'
+import { AiLabelsSection } from './sections/ai-labels-section'
 import { useI18n } from '../../lib/i18n'
 
 export function PluginsTab() {
@@ -13,7 +13,7 @@ export function PluginsTab() {
       <ReprocessSection />
       <div className="rounded-xl border border-border bg-bg-subtle/30 p-5"><SummarySection /></div>
       <div className="rounded-xl border border-border bg-bg-subtle/30 p-5"><RelevanceSection /></div>
-      <div className="rounded-xl border border-border bg-bg-subtle/30 p-5"><TopicsSection /></div>
+      <div className="rounded-xl border border-border bg-bg-subtle/30 p-5"><AiLabelsSection /></div>
       <div className="rounded-xl border border-border bg-bg-subtle/30 p-5"><ImageStorageSettings /></div>
     </div>
   )

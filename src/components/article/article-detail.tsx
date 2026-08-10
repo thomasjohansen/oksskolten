@@ -27,7 +27,7 @@ import { ArticleTranslationBanner } from './article-translation-banner'
 import { ArticleContentBody } from './article-content-body'
 import { ArticleSimilarBanner } from './article-similar-banner'
 import { ArticleRelevanceCard } from './article-relevance-card'
-import { ArticleTopics } from './article-topics'
+import { ArticleLabels, type EffectiveArticleLabel } from './article-labels'
 import type { ArticleDetail as ArticleDetailData } from '../../../shared/types'
 
 interface ArticleDetailProps {
@@ -40,7 +40,7 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
   const navigate = useNavigate()
   const { t, tError, isKeyNotSetError, locale } = useI18n()
   const articleKey = `/api/articles/by-url?url=${encodeURIComponent(articleUrl)}`
-  const { data: article, error, mutate } = useSWR<ArticleDetailData>(articleKey, fetcher)
+  const { data: article, error, mutate } = useSWR<ArticleDetailData & { effective_labels?: EffectiveArticleLabel[] }>(articleKey, fetcher)
   const { mutate: globalMutate } = useSWRConfig()
 
   const isUserLang = article?.lang === (translateTargetLang || locale)
@@ -219,7 +219,7 @@ export function ArticleDetail({ articleUrl, enableZapNavigation = false }: Artic
         onDelete={() => setDeleteConfirmOpen(true)}
       />
 
-      {article.topics && <ArticleTopics topics={article.topics.topics} />}
+      {article.effective_labels && <ArticleLabels labels={article.effective_labels} />}
 
       {/* Inline Chat Panel */}
       {chatPosition === 'inline' && chat.open && (

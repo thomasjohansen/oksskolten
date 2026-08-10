@@ -10,7 +10,6 @@ import { statsRoutes } from './stats.js'
 import { labelRoutes } from './labels.js'
 import { summaryRoutes } from './summary.js'
 import { relevanceRoutes } from './relevance.js'
-import { topicsRoutes } from './topics.js'
 import { reprocessRoutes } from './reprocess.js'
 import { pluginControlRoutes } from './plugins.js'
 
@@ -29,7 +28,6 @@ export function registerApi(app: FastifyInstance): void {
     await api.register(labelRoutes)
     await api.register(summaryRoutes)
     await api.register(relevanceRoutes)
-    await api.register(topicsRoutes)
     await api.register(reprocessRoutes)
     await api.register(pluginControlRoutes)
   })

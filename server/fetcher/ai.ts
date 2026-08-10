@@ -148,16 +148,14 @@ const relevanceConfig: AiTaskConfig = {
   buildPrompt: text => applyArticle(RELEVANCE_PROMPT(getSetting('relevance.brief') || ''), text),
 }
 
-const TOPICS_PROMPT = `Extract 1-5 broad, reader-facing subjects suitable for browsing this article.
-Subjects may be domains, public issues, places, institutions, people, or major events. Return only a strict JSON array of concise 1-4 word noun phrases, at most 50 characters each. Do not use a fixed taxonomy, labels, categories, URLs, code, implementation details, or claim-like sentences. Prefer recognizable subjects over technical keywords.
+const AI_LABELS_PROMPT = `Suggest 1-3 broad reusable labels for this article for an existing reader label system.
+Return only strict JSON: {"labels":[{"name":"Climate policy","confidence":0.92}]}.
+Names must be reader-facing noun phrases of 1-4 words, at most 50 characters. Prefer broad domains, public issues, places, institutions, people, or major events. Do not invent a taxonomy, use URLs/code/implementation terms, or write claim-like phrases. Confidence must be between 0 and 1.
 
 --- Article body ---
 {{article}}`
 
-const topicsConfig: AiTaskConfig = {
-  providerKey: 'summary.provider', modelKey: 'summary.model', defaultModel: TASK_DEFAULTS.summarize.model,
-  maxTokens: 512, buildPrompt: text => applyArticle(TOPICS_PROMPT, text),
-}
+const aiLabelsConfig: AiTaskConfig = { providerKey: 'summary.provider', modelKey: 'summary.model', defaultModel: TASK_DEFAULTS.summarize.model, maxTokens: 512, buildPrompt: text => applyArticle(AI_LABELS_PROMPT, text) }
 
 export async function summarizeArticle(fullText: string, sourceLanguage?: string | null): Promise<{ summary: string } & AiTextResult> {
   const r = await runAiTask({ ...summarizeConfig, buildPrompt: text => buildSummarizePrompt(text, sourceLanguage) }, fullText)
@@ -170,9 +168,9 @@ export async function assessArticleRelevance(fullText: string, profile: string, 
   try { return JSON.parse(r.text) as unknown } catch { throw new Error('Invalid relevance JSON') }
 }
 
-export async function extractArticleTopics(fullText: string): Promise<unknown> {
-  const r = await runAiTask(topicsConfig, fullText)
-  try { return JSON.parse(r.text) as unknown } catch { throw new Error('Invalid topics JSON') }
+export async function extractAiLabels(fullText: string): Promise<unknown> {
+  const r = await runAiTask(aiLabelsConfig, fullText)
+  try { const parsed = JSON.parse(r.text) as { labels?: unknown }; return parsed.labels } catch { throw new Error('Invalid AI labels JSON') }
 }
 
 export async function streamSummarizeArticle(

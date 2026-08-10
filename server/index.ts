@@ -22,7 +22,7 @@ import { fetchAllFeeds } from './fetcher.js'
 import { ensureSearchIndex, rebuildSearchIndex, isSearchReady, syncAllScoredArticlesToSearch } from './search/sync.js'
 import { runSummaryJobs } from './plugins/summary.js'
 import { runRelevanceJobs } from './plugins/relevance.js'
-import { runTopicsJobs } from './plugins/topics.js'
+import { runAiLabelJobs } from './plugins/ai-labels.js'
 
 // --- Startup guards ---
 if (process.env.AUTH_DISABLED === '1' && process.env.NODE_ENV !== 'development') {
@@ -192,7 +192,7 @@ cronTasks.push(cron.schedule('* * * * *', async () => {
   try { await runRelevanceJobs() } catch (err) { log.error('[cron] Relevance worker error:', err) }
 }))
 cronTasks.push(cron.schedule('* * * * *', async () => {
-  try { await runTopicsJobs() } catch (err) { log.error('[cron] Topics worker error:', err) }
+  try { await runAiLabelJobs() } catch (err) { log.error('[cron] AI Labels worker error:', err) }
 }))
 
 // --- Score recalculation ---

@@ -17,7 +17,7 @@ describe('ReprocessSection', () => {
       modules: {
         summary: { queued: 3, skipped: 1 },
         relevance: { queued: 2, skipped: 2 },
-        topics: { queued: 4, skipped: 0 },
+        ai_labels: { queued: 4, skipped: 0 },
       },
     })
     const user = userEvent.setup()
@@ -25,13 +25,13 @@ describe('ReprocessSection', () => {
 
     await user.click(screen.getByRole('button', { name: 'plugins.reprocess.action' }))
     await waitFor(() => expect(mockApiPost).toHaveBeenCalledWith('/api/internal/reprocess', {
-      modules: ['summary', 'relevance', 'topics'],
+      modules: ['summary', 'relevance', 'ai_labels'],
       limit: 50,
     }))
     expect(screen.getByText('plugins.reprocess.checked')).toBeTruthy()
     expect(screen.getByText('plugins.summary.title')).toBeTruthy()
     expect(screen.getByText('plugins.relevance.title')).toBeTruthy()
-    expect(screen.getByText('plugins.topics.title')).toBeTruthy()
+    expect(screen.getByText('plugins.aiLabels.title')).toBeTruthy()
     expect(screen.getAllByText('plugins.reprocess.moduleCounts')).toHaveLength(3)
   })
 

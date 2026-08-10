@@ -7,14 +7,13 @@ import { getDb } from '../db/connection.js'
 beforeEach(() => setupTestDb())
 
 describe('Topics API', () => {
-  it('returns article topics with provenance', async () => {
+  it('retires the Topics product endpoint', async () => {
     const feed = createFeed({ name: 'Topics API', url: 'https://topics-api.test/rss' })
     const id = insertArticle({ feed_id: feed.id, title: 'Article', url: 'https://topics-api.test/article', published_at: null, full_text: 'body' })
     getDb().prepare("INSERT INTO article_topics (article_id, topics_json, source_content_hash) VALUES (?, ?, 'hash')").run(id, JSON.stringify(['Climate']))
     const app = await buildApp()
     const response = await app.inject({ method: 'GET', url: `/api/articles/${id}/topics` })
-    expect(response.statusCode).toBe(200)
-    expect(response.json()).toMatchObject({ topics: { topics: ['Climate'], source_content_hash: 'hash' } })
+    expect(response.statusCode).toBe(404)
     await app.close()
   })
 
@@ -22,9 +21,9 @@ describe('Topics API', () => {
     const feed = createFeed({ name: 'Reprocess API', url: 'https://reprocess-api.test/rss' })
     insertArticle({ feed_id: feed.id, title: 'Article', url: 'https://reprocess-api.test/article', published_at: null, full_text: 'body' })
     const app = await buildApp()
-    const response = await app.inject({ method: 'POST', url: '/api/internal/reprocess', payload: { modules: ['topics'], limit: 1 } })
+    const response = await app.inject({ method: 'POST', url: '/api/internal/reprocess', payload: { modules: ['ai_labels'], limit: 1 } })
     expect(response.statusCode).toBe(200)
-    expect(response.json()).toMatchObject({ limit: 1, selected: 1, modules: { topics: { queued: 0, skipped: 1 } } })
+    expect(response.json()).toMatchObject({ limit: 1, selected: 1, modules: { ai_labels: { queued: 0, skipped: 1 } } })
     await app.close()
   })
 })

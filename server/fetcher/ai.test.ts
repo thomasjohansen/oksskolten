@@ -30,7 +30,6 @@ import {
   streamSummarizeArticle,
   translateArticle,
   streamTranslateArticle,
-  extractArticleTopics,
 } from './ai.js'
 
 beforeEach(() => {
@@ -160,17 +159,6 @@ describe('summarizeArticle', () => {
     })
     await expect(summarizeArticle('text')).rejects.toThrow('ANTHROPIC_KEY_NOT_SET')
     mockRequireKey.mockReset()
-  })
-})
-
-describe('extractArticleTopics', () => {
-  it('prompts for broad reader-facing subjects', async () => {
-    mockCreateMessage.mockResolvedValue({ text: '["Climate policy"]', inputTokens: 0, outputTokens: 0 })
-    await extractArticleTopics('Article about climate policy and public health')
-    const params = mockCreateMessage.mock.calls[0][0]
-    expect(params.messages[0].content).toContain('broad, reader-facing subjects')
-    expect(params.messages[0].content).toContain('1-4 word noun phrases')
-    expect(params.messages[0].content).toContain('Do not use a fixed taxonomy')
   })
 })
 

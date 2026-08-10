@@ -192,7 +192,7 @@ export function getLabels(opts: { unreadOnly?: boolean } = {}): LabelWithCount[]
   const unreadClause = opts.unreadOnly ? ' AND a.seen_at IS NULL' : ''
   const countRows = getDb().prepare(`
     SELECT al.label_id AS label_id, COUNT(*) AS n
-    FROM article_labels al
+    FROM effective_article_labels al
     JOIN active_articles a ON a.id = al.article_id
     WHERE 1=1${unreadClause}
     GROUP BY al.label_id
@@ -228,8 +228,8 @@ export function createLabel(data: {
   const legacyField = firstOr?.match_field ?? 'both'
 
   const info = getDb().prepare(
-    'INSERT INTO labels (name, match_text, match_field, sort_order, auto_summarize, exclusive) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(data.name, legacyText, legacyField, maxOrder.next, data.auto_summarize ? 1 : 0, data.exclusive ? 1 : 0)
+    "INSERT INTO labels (name, match_text, match_field, sort_order, auto_summarize, exclusive, origin, normalized_name) VALUES (?, ?, ?, ?, ?, ?, 'user', lower(trim(?)))",
+  ).run(data.name, legacyText, legacyField, maxOrder.next, data.auto_summarize ? 1 : 0, data.exclusive ? 1 : 0, data.name)
 
   const id = Number(info.lastInsertRowid)
   replaceRules(id, data.rules)
@@ -248,12 +248,14 @@ export function updateLabel(
     rules?: Array<{ match_text: string; match_field: 'title' | 'full_text' | 'both'; rule_type: 'and' | 'or' | 'not' }>
   },
 ): Label | undefined {
-  if (!getLabelById(id)) return undefined
+  const existingLabel = getLabelById(id)
+  if (!existingLabel) return undefined
+  if (data.rules?.length === 0 && existingLabel.origin !== 'ai') throw new Error('Manual labels require at least one rule')
 
   const fields: string[] = []
   const params: Record<string, unknown> = { id }
 
-  if (data.name !== undefined) { fields.push('name = @name'); params.name = data.name }
+  if (data.name !== undefined) { fields.push('name = @name', 'normalized_name = lower(trim(@name))'); params.name = data.name }
   if (data.sort_order !== undefined) { fields.push('sort_order = @sort_order'); params.sort_order = data.sort_order }
   if (data.auto_summarize !== undefined) {
     fields.push('auto_summarize = @auto_summarize')
@@ -306,7 +308,7 @@ export function getArticlesByLabel(
 
   const total = (getDb().prepare(`
     SELECT COUNT(*) AS n
-    FROM article_labels al
+    FROM effective_article_labels al
     JOIN active_articles a ON a.id = al.article_id
     WHERE al.label_id = ?${unreadClause}
   `).get(labelId) as { n: number }).n
@@ -314,10 +316,12 @@ export function getArticlesByLabel(
   const itemsWithExtra = getDb().prepare(`
     SELECT a.id, a.feed_id, f.name AS feed_name, a.title, a.url,
            a.published_at, a.lang, a.summary, a.excerpt, a.og_image,
-           a.seen_at, a.read_at, a.bookmarked_at, a.liked_at, a.score
-    FROM article_labels al
+           a.seen_at, a.read_at, a.bookmarked_at, a.liked_at, a.score,
+           aal.confidence AS ai_confidence
+    FROM effective_article_labels al
     JOIN active_articles a ON a.id = al.article_id
     JOIN feeds f ON f.id = a.feed_id
+    LEFT JOIN article_ai_labels aal ON aal.article_id = al.article_id AND aal.label_id = al.label_id
     WHERE al.label_id = ?${unreadClause}
     ORDER BY a.published_at DESC
     LIMIT ? OFFSET ?
@@ -326,6 +330,31 @@ export function getArticlesByLabel(
   const hasMore = itemsWithExtra.length > opts.limit
   const items = hasMore ? itemsWithExtra.slice(0, opts.limit) : itemsWithExtra
   return { items, total, hasMore }
+}
+
+export interface EffectiveArticleLabel {
+  id: number
+  name: string
+  origin: 'user' | 'ai'
+  ai_confidence: number | null
+  ai_source_content_hash: string | null
+  ai_provenance: string | null
+}
+
+/** Returns deduplicated rule and AI label membership for an article. */
+export function getEffectiveArticleLabels(articleId: number): EffectiveArticleLabel[] {
+  return getDb().prepare(`
+    SELECT l.id, l.name, l.origin,
+           aal.confidence AS ai_confidence,
+           aal.source_content_hash AS ai_source_content_hash,
+           aal.provenance AS ai_provenance
+    FROM effective_article_labels eal
+    JOIN labels l ON l.id = eal.label_id
+    LEFT JOIN article_ai_labels aal
+      ON aal.article_id = eal.article_id AND aal.label_id = eal.label_id
+    WHERE eal.article_id = ?
+    ORDER BY l.sort_order ASC, l.name COLLATE NOCASE ASC
+  `).all(articleId) as EffectiveArticleLabel[]
 }
 
 /** Returns true if the article matches any label with auto_summarize=1 and has no summary yet. */

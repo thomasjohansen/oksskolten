@@ -77,6 +77,7 @@ export interface ArticleListItem {
   liked_at: string | null
   score?: number
   relevance_score?: number | null
+  ai_confidence?: number | null
   similar_count?: number
 }
 
@@ -88,6 +89,7 @@ export interface ArticleDetail extends ArticleListItem {
   feed_type: 'rss' | 'clip'
   imageArchivingEnabled: boolean
   relevance?: { score: number; reason: string; signals: Record<string, { value: number; reason: string }>; content_hash: string; profile_hash: string | null; brief_revision: number; created_at: string; updated_at: string } | null
+  /** Retained for concurrent UI migration compatibility; Topics API/data is retired. */
   topics?: { topics: string[]; source_content_hash: string; created_at: string; updated_at: string } | null
 }
 
@@ -108,6 +110,7 @@ export interface Label {
   created_at: string
   auto_summarize: number
   exclusive: number
+  origin?: 'user' | 'ai'
   rules: LabelRule[]
 }
 

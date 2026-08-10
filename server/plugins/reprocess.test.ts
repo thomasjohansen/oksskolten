@@ -4,7 +4,6 @@ import { createFeed, insertArticle, markArticleSeen } from '../db.js'
 import { getDb } from '../db/connection.js'
 import { setRelevanceBrief } from './relevance.js'
 import { reprocessArticles } from './reprocess.js'
-import { TOPICS_VERSION } from './topics.js'
 
 beforeEach(() => setupTestDb())
 
@@ -18,8 +17,8 @@ describe('bounded static-plugin reprocess', () => {
     const unread = add('unread')
     const read = add('read')
     markArticleSeen(read, true)
-    const first = reprocessArticles({ modules: ['summary', 'relevance', 'topics'], limit: 1 })
-    expect(first).toMatchObject({ limit: 1, selected: 1, modules: { summary: { queued: 0, skipped: 1 }, relevance: { queued: 0, skipped: 1 }, topics: { queued: 1, skipped: 0 } } })
+    const first = reprocessArticles({ modules: ['summary', 'relevance', 'ai_labels'], limit: 1 })
+    expect(first).toMatchObject({ limit: 1, selected: 1, modules: { summary: { queued: 0, skipped: 1 }, relevance: { queued: 0, skipped: 1 }, ai_labels: { queued: 0, skipped: 1 } } })
     expect(getDb().prepare('SELECT COUNT(*) AS count FROM summary_jobs WHERE article_id = ?').get(unread)).toMatchObject({ count: 1 })
     setRelevanceBrief('brief')
     const second = reprocessArticles({ modules: ['relevance'], limit: 10 })
@@ -27,12 +26,10 @@ describe('bounded static-plugin reprocess', () => {
     expect(reprocessArticles({ modules: ['relevance'], limit: 10 }).modules.relevance.queued).toBe(0)
   })
 
-  it('replaces existing version-one Topics results on the next Topics reprocess', () => {
-    const id = add('old topics')
-    getDb().prepare("INSERT INTO article_topics (article_id, topics_json, source_content_hash, topics_version) VALUES (?, '[\"API\"]', 'old', 1)").run(id)
-    const result = reprocessArticles({ modules: ['topics'], limit: 10 })
-    expect(result.modules.topics.queued).toBe(1)
-    expect(getDb().prepare('SELECT topics_version FROM article_topics WHERE article_id = ?').get(id)).toBeUndefined()
-    expect(TOPICS_VERSION).toBe(2)
+  it('reprocesses AI Labels idempotently for unchanged content', () => {
+    add('existing labels')
+    const result = reprocessArticles({ modules: ['ai_labels'], limit: 10 })
+    expect(result.modules.ai_labels.queued).toBe(0)
+    expect(reprocessArticles({ modules: ['ai_labels'], limit: 10 }).modules.ai_labels.queued).toBe(0)
   })
 })

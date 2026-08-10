@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { buildApp } from '../__tests__/helpers/buildApp.js'
-import { createFeed, createCategory, insertArticle, markArticleSeen } from '../db.js'
+import { createFeed, createCategory, insertArticle, markArticleSeen, createLabel } from '../db.js'
+import { getDb } from '../db/connection.js'
 import type { FastifyInstance } from 'fastify'
 
 // ---------------------------------------------------------------------------
@@ -63,6 +64,29 @@ beforeEach(async () => {
 // ---------------------------------------------------------------------------
 // Streaming summarize
 // ---------------------------------------------------------------------------
+
+describe('GET /api/articles/by-url effective labels', () => {
+  it('returns deduplicated rule and AI labels with clickable-chip data', async () => {
+    const feed = seedFeed()
+    const articleId = seedArticle(feed.id, { title: 'Apple news' })
+    const label = createLabel({ name: 'Fruit', rules: [{ match_text: 'apple', match_field: 'title', rule_type: 'or' }] })
+    getDb().prepare("INSERT INTO article_ai_labels (article_id, label_id, confidence, source_content_hash) VALUES (?, ?, 0.86, 'route-hash')").run(articleId, label.id)
+
+    const article = getDb().prepare('SELECT url FROM articles WHERE id = ?').get(articleId) as { url: string }
+    const response = await app.inject({ method: 'GET', url: `/api/articles/by-url?url=${encodeURIComponent(article.url)}` })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().effective_labels).toEqual([{
+      id: label.id, name: 'Fruit', origin: 'user', ai_confidence: 0.86,
+      ai_source_content_hash: 'route-hash', ai_provenance: 'omos.ai-labels',
+    }])
+  })
+
+  it('returns 404 for an absent article', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/articles/by-url?url=https%3A%2F%2Fmissing.test%2Farticle' })
+    expect(response.statusCode).toBe(404)
+  })
+})
 
 describe('POST /api/articles/:id/summarize?stream=1', () => {
   it('returns SSE stream with delta and done events', async () => {

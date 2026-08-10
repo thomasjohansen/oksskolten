@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import useSWR, { useSWRConfig } from 'swr'
 import { Pencil, Plus, Trash2, X, Check } from 'lucide-react'
 import { useI18n } from '../../../lib/i18n'
@@ -35,10 +35,10 @@ function matchFieldLabel(field: MatchField, t: ReturnType<typeof useI18n>['t']):
 }
 
 
-function labelToForm(label: LabelWithCount): LabelForm {
+export function labelToForm(label: LabelWithCount): LabelForm {
   const rules: RuleForm[] = label.rules.length > 0
     ? label.rules.map(r => ({ match_text: r.match_text, match_field: r.match_field, rule_type: r.rule_type }))
-    : [{ match_text: label.match_text, match_field: label.match_field, rule_type: 'or' as const }]
+    : label.origin === 'ai' ? [] : [{ match_text: label.match_text, match_field: label.match_field, rule_type: 'or' as const }]
   return { name: label.name, auto_summarize: label.auto_summarize === 1, exclusive: label.exclusive === 1, rules }
 }
 
@@ -47,7 +47,7 @@ export function LabelsSection() {
   const { settings } = useAppLayout()
   const { mutate: globalMutate } = useSWRConfig()
   const { data } = useSWR<{ labels: LabelWithCount[] }>('/api/labels', fetcher)
-  const labels = data?.labels ?? []
+  const labels = useMemo(() => data?.labels ?? [], [data])
 
   const [form, setForm] = useState<LabelForm>(EMPTY_FORM)
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -70,7 +70,8 @@ export function LabelsSection() {
   }, [])
 
   const handleSaveEdit = useCallback(async () => {
-    if (editingId === null || !form.name.trim() || form.rules.some(r => !r.match_text.trim())) return
+    const editingLabel = editingId === null ? undefined : labels.find(label => label.id === editingId)
+    if (editingId === null || !form.name.trim() || (editingLabel?.origin !== 'ai' && form.rules.some(r => !r.match_text.trim()))) return
     try {
       await apiPatch(`/api/labels/${editingId}`, form)
       setEditingId(null)
@@ -79,7 +80,7 @@ export function LabelsSection() {
     } catch {
       // keep edit state so the user can retry
     }
-  }, [editingId, form, revalidate])
+  }, [editingId, form, labels, revalidate])
 
   const handleCreate = useCallback(async () => {
     if (!form.name.trim() || form.rules.some(r => !r.match_text.trim())) return
@@ -137,6 +138,7 @@ export function LabelsSection() {
               onChange={setForm}
               onSave={handleSaveEdit}
               onCancel={handleCancelEdit}
+              allowEmptyRules={label.origin === 'ai'}
             />
           ) : (
             <LabelRow
@@ -193,7 +195,7 @@ function LabelRow({ label, onEdit, onDelete }: LabelRowProps) {
   const { t } = useI18n()
   const rules = label.rules.length > 0
     ? label.rules
-    : [{ match_text: label.match_text, match_field: label.match_field, rule_type: 'or' as const }]
+    : label.origin === 'ai' ? [] : [{ match_text: label.match_text, match_field: label.match_field, rule_type: 'or' as const }]
 
   return (
     <div className="flex items-start justify-between gap-2 px-3 py-2 rounded-lg border border-border bg-bg-card">
@@ -202,10 +204,12 @@ function LabelRow({ label, onEdit, onDelete }: LabelRowProps) {
         {label.auto_summarize === 1 && (
           <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent">AI</span>
         )}
+        {label.origin === 'ai' && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-accent/10 text-accent">{t('settings.labelAiCreated')}</span>}
         {label.exclusive === 1 && (
           <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded bg-muted/20 text-muted">{t('settings.labelExclusive')}</span>
         )}
         <div className="mt-0.5 space-y-0.5">
+          {rules.length === 0 && <span className="block text-xs text-muted">{t('settings.labelNoRules')}</span>}
           {rules.map((r, i) => (
             <span key={i} className="block text-xs text-muted">
               <span className="font-mono uppercase text-[10px] mr-1 opacity-60">{r.rule_type}</span>
@@ -244,11 +248,12 @@ interface LabelFormRowProps {
   onChange: (f: LabelForm) => void
   onSave: () => void
   onCancel: () => void
+  allowEmptyRules?: boolean
 }
 
-function LabelFormRow({ form, onChange, onSave, onCancel }: LabelFormRowProps) {
+function LabelFormRow({ form, onChange, onSave, onCancel, allowEmptyRules = false }: LabelFormRowProps) {
   const { t } = useI18n()
-  const canSave = form.name.trim().length > 0 && form.rules.length > 0 && form.rules.every(r => r.match_text.trim().length > 0)
+  const canSave = form.name.trim().length > 0 && (allowEmptyRules || (form.rules.length > 0 && form.rules.every(r => r.match_text.trim().length > 0)))
 
   const updateRule = (i: number, patch: Partial<RuleForm>) => {
     const rules = form.rules.map((r, idx) => idx === i ? { ...r, ...patch } : r)

@@ -6,7 +6,7 @@ import { useI18n } from '../../../lib/i18n'
 interface ModuleResult { queued: number; skipped: number }
 interface ReprocessResponse {
   selected: number
-  modules: { summary: ModuleResult; relevance: ModuleResult; topics: ModuleResult }
+  modules: { summary: ModuleResult; relevance: ModuleResult; ai_labels: ModuleResult }
 }
 
 export function ReprocessSection() {
@@ -21,7 +21,7 @@ export function ReprocessSection() {
     setResult(null)
     setError(false)
     try {
-      setResult(await apiPost('/api/internal/reprocess', { modules: ['summary', 'relevance', 'topics'], limit: 50 }) as ReprocessResponse)
+      setResult(await apiPost('/api/internal/reprocess', { modules: ['summary', 'relevance', 'ai_labels'], limit: 50 }) as ReprocessResponse)
     } catch {
       setError(true)
     } finally {
@@ -52,9 +52,9 @@ export function ReprocessSection() {
           <div>
             <p>{t('plugins.reprocess.checked').replace('{selected}', String(result.selected))}</p>
             <ul className="mt-1 space-y-0.5 text-muted">
-              {(['summary', 'relevance', 'topics'] as const).map(module => (
+              {(['summary', 'relevance', 'ai_labels'] as const).map(module => (
                 <li key={module} className="flex flex-wrap gap-x-2">
-                  <span className="font-medium text-text">{t(`plugins.${module}.title` as 'plugins.summary.title')}</span>
+                  <span className="font-medium text-text">{t(module === 'ai_labels' ? 'plugins.aiLabels.title' : `plugins.${module}.title` as 'plugins.summary.title')}</span>
                   <span>{t('plugins.reprocess.moduleCounts').replace('{queued}', String(result.modules[module].queued)).replace('{skipped}', String(result.modules[module].skipped))}</span>
                 </li>
               ))}

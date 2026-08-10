@@ -4,7 +4,7 @@ import { requireJson } from '../auth.js'
 import { parseOrBadRequest } from '../lib/validation.js'
 import { reprocessArticles, REPROCESS_MAX_LIMIT } from '../plugins/reprocess.js'
 
-const Body = z.object({ modules: z.array(z.enum(['summary', 'relevance', 'topics'])).min(1), limit: z.number().int().min(1).max(REPROCESS_MAX_LIMIT).optional() })
+const Body = z.object({ modules: z.array(z.enum(['summary', 'relevance', 'ai_labels'])).min(1), limit: z.number().int().min(1).max(REPROCESS_MAX_LIMIT).optional() })
 
 export async function reprocessRoutes(api: FastifyInstance): Promise<void> {
   api.post('/api/internal/reprocess', { preHandler: [requireJson] }, async (request, reply) => {

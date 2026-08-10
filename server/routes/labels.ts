@@ -25,7 +25,7 @@ const UpdateLabelBody = z.object({
   sort_order: z.number().int().optional(),
   auto_summarize: z.boolean().optional(),
   exclusive: z.boolean().optional(),
-  rules: z.array(LabelRule).min(1).optional(),
+  rules: z.array(LabelRule).optional(),
 })
 
 const LabelArticlesQuery = z.object({
@@ -70,6 +70,10 @@ export async function labelRoutes(api: FastifyInstance): Promise<void> {
       if (!params) return
       const body = parseOrBadRequest(UpdateLabelBody, request.body, reply)
       if (!body) return
+      if (body.rules?.length === 0 && getLabelById(params.id)?.origin !== 'ai') {
+        reply.status(400).send({ error: 'Manual labels require at least one rule' })
+        return
+      }
       const label = updateLabel(params.id, body)
       if (!label) {
         reply.status(404).send({ error: 'Label not found' })

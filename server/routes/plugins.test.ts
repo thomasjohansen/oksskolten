@@ -10,8 +10,8 @@ describe('static plugin controls API', () => {
     const health = await app.inject({ method: 'GET', url: '/api/settings/plugins' })
     expect(health.statusCode).toBe(200)
     expect(health.json().plugins).toHaveLength(3)
-    const disabled = await app.inject({ method: 'PATCH', url: '/api/settings/plugins/topics', payload: { enabled: false } })
-    expect(disabled.json()).toMatchObject({ plugin_id: 'omos.topics', enabled: false })
+    const disabled = await app.inject({ method: 'PATCH', url: '/api/settings/plugins/ai-labels', payload: { enabled: false } })
+    expect(disabled.json()).toMatchObject({ plugin_id: 'omos.ai-labels', enabled: false })
     await app.close()
   })
 
