@@ -148,14 +148,20 @@ const relevanceConfig: AiTaskConfig = {
   buildPrompt: text => applyArticle(RELEVANCE_PROMPT(getSetting('relevance.brief') || ''), text),
 }
 
-const AI_LABELS_PROMPT = `Suggest 1-3 broad reusable labels for this article for an existing reader label system.
-Return only strict JSON: {"labels":[{"name":"Climate policy","confidence":0.92}]}.
+export interface AiLabelOption { id: number; name: string }
+
+const AI_LABELS_PROMPT = (availableLabels: AiLabelOption[]) => `Suggest 1-3 broad reusable labels for this article for an existing reader label system.
+Return only strict JSON: {"labels":[{"label_id":12,"name":"Climate policy","confidence":0.92}]}.
 Names must be reader-facing noun phrases of 1-4 words, at most 50 characters. Prefer broad domains, public issues, places, institutions, people, or major events. Do not invent a taxonomy, use URLs/code/implementation terms, or write claim-like phrases. Confidence must be between 0 and 1.
+Choose an existing label whenever it fits. Existing labels are listed with their exact numeric id and canonical name below. For an existing label, copy both exactly. Propose a novel label only when it is materially distinct from every existing label, confidence is at least 0.90, and the justification clearly explains why it deserves a new reusable label. A novel label may omit label_id. Never use generic labels such as News, Article, Topic, General, Other, or Information.
+
+--- Existing labels ---
+${JSON.stringify(availableLabels)}
 
 --- Article body ---
 {{article}}`
 
-const aiLabelsConfig: AiTaskConfig = { providerKey: 'summary.provider', modelKey: 'summary.model', defaultModel: TASK_DEFAULTS.summarize.model, maxTokens: 512, buildPrompt: text => applyArticle(AI_LABELS_PROMPT, text) }
+const aiLabelsConfig: AiTaskConfig = { providerKey: 'summary.provider', modelKey: 'summary.model', defaultModel: TASK_DEFAULTS.summarize.model, maxTokens: 512, buildPrompt: text => applyArticle(AI_LABELS_PROMPT([]), text) }
 
 export async function summarizeArticle(fullText: string, sourceLanguage?: string | null): Promise<{ summary: string } & AiTextResult> {
   const r = await runAiTask({ ...summarizeConfig, buildPrompt: text => buildSummarizePrompt(text, sourceLanguage) }, fullText)
@@ -168,8 +174,8 @@ export async function assessArticleRelevance(fullText: string, profile: string, 
   try { return JSON.parse(r.text) as unknown } catch { throw new Error('Invalid relevance JSON') }
 }
 
-export async function extractAiLabels(fullText: string): Promise<unknown> {
-  const r = await runAiTask(aiLabelsConfig, fullText)
+export async function extractAiLabels(fullText: string, availableLabels: AiLabelOption[] = []): Promise<unknown> {
+  const r = await runAiTask({ ...aiLabelsConfig, buildPrompt: text => applyArticle(AI_LABELS_PROMPT(availableLabels), text) }, fullText)
   try { const parsed = JSON.parse(r.text) as { labels?: unknown }; return parsed.labels } catch { throw new Error('Invalid AI labels JSON') }
 }
 

@@ -77,7 +77,7 @@ describe('GET /api/articles/by-url effective labels', () => {
 
     expect(response.statusCode).toBe(200)
     expect(response.json().effective_labels).toEqual([{
-      id: label.id, name: 'Fruit', origin: 'user', ai_confidence: 0.86,
+      id: label.id, name: 'Fruit', origin: 'user', lifecycle_status: 'promoted', ai_confidence: 0.86,
       ai_source_content_hash: 'route-hash', ai_provenance: 'omos.ai-labels',
     }])
   })

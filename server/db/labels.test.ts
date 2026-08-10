@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
 import { getDb } from './connection.js'
+import { runMigrations } from './connection.js'
 import { createLabel, updateLabel, deleteLabel, getLabels, getArticlesByLabel, getEffectiveArticleLabels } from './labels.js'
 import { insertArticle } from './articles.js'
 
@@ -27,6 +28,27 @@ beforeEach(() => {
 })
 
 describe('label membership materialization', () => {
+  it('replaces a stale effective membership view with rule and AI membership', () => {
+    const articleIds = [addArticle('AI-only article 1'), addArticle('AI-only article 2'), addArticle('AI-only article 3')]
+    const label = createLabel({ name: 'AI subject', rules: [] })
+    const candidate = createLabel({ name: 'Unproven AI subject', rules: [] })
+    getDb().prepare("UPDATE labels SET origin = 'ai', lifecycle_status = 'promoted' WHERE id IN (?, ?)").run(label.id, candidate.id)
+    const insert = getDb().prepare("INSERT INTO article_ai_labels (article_id, label_id, confidence, source_content_hash) VALUES (?, ?, 0.9, 'migration-hash')")
+    for (const articleId of articleIds) insert.run(articleId, label.id)
+    insert.run(articleIds[0], candidate.id)
+    getDb().exec('DROP VIEW effective_article_labels')
+    getDb().exec('CREATE VIEW effective_article_labels AS SELECT article_id, label_id FROM article_labels')
+    getDb().prepare("DELETE FROM _migrations WHERE name = '0020_ai_label_candidates.sql'").run()
+    runMigrations()
+
+    expect(getDb().prepare('SELECT article_id, label_id FROM effective_article_labels').all()).toHaveLength(4)
+    expect(getDb().prepare('SELECT lifecycle_status FROM labels WHERE id = ?').get(label.id)).toMatchObject({ lifecycle_status: 'promoted' })
+    expect(getDb().prepare('SELECT lifecycle_status FROM labels WHERE id = ?').get(candidate.id)).toMatchObject({ lifecycle_status: 'candidate' })
+    expect(getLabels().find(item => item.id === label.id)?.article_count).toBe(3)
+    expect(getLabels().some(item => item.id === candidate.id)).toBe(false)
+    expect(getArticlesByLabel(label.id, { limit: 20, offset: 0 }).total).toBe(3)
+  })
+
   it('returns AI-only effective membership with provenance', () => {
     const articleId = addArticle('Unrelated article')
     const label = createLabel({ name: 'AI label', rules: [] })
@@ -44,7 +66,7 @@ describe('label membership materialization', () => {
     const label = createLabel({ name: 'Fruit', rules: [orRule('apple')] })
 
     expect(getEffectiveArticleLabels(articleId)).toEqual([{
-      id: label.id, name: 'Fruit', origin: 'user', ai_confidence: null,
+      id: label.id, name: 'Fruit', origin: 'user', lifecycle_status: 'promoted', ai_confidence: null,
       ai_source_content_hash: null, ai_provenance: null,
     }])
   })

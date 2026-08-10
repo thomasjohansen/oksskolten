@@ -89,8 +89,19 @@ export interface ArticleDetail extends ArticleListItem {
   feed_type: 'rss' | 'clip'
   imageArchivingEnabled: boolean
   relevance?: { score: number; reason: string; signals: Record<string, { value: number; reason: string }>; content_hash: string; profile_hash: string | null; brief_revision: number; created_at: string; updated_at: string } | null
+  effective_labels?: EffectiveArticleLabel[]
   /** Retained for concurrent UI migration compatibility; Topics API/data is retired. */
   topics?: { topics: string[]; source_content_hash: string; created_at: string; updated_at: string } | null
+}
+
+export interface EffectiveArticleLabel {
+  id: number
+  name: string
+  origin: 'user' | 'ai'
+  lifecycle_status: 'candidate' | 'promoted'
+  ai_confidence: number | null
+  ai_source_content_hash: string | null
+  ai_provenance: string | null
 }
 
 export interface LabelRule {
@@ -111,6 +122,7 @@ export interface Label {
   auto_summarize: number
   exclusive: number
   origin?: 'user' | 'ai'
+  lifecycle_status?: 'candidate' | 'promoted'
   rules: LabelRule[]
 }
 

@@ -184,7 +184,7 @@ export function rebuildAllLabelMemberships(): void {
 
 export function getLabels(opts: { unreadOnly?: boolean } = {}): LabelWithCount[] {
   const rows = getDb().prepare(
-    'SELECT * FROM labels ORDER BY sort_order ASC, name COLLATE NOCASE ASC',
+    "SELECT * FROM labels WHERE origin = 'user' OR lifecycle_status = 'promoted' ORDER BY sort_order ASC, name COLLATE NOCASE ASC",
   ).all() as Label[]
 
   // Counts come from the materialized membership table — one grouped query for
@@ -336,6 +336,7 @@ export interface EffectiveArticleLabel {
   id: number
   name: string
   origin: 'user' | 'ai'
+  lifecycle_status: 'candidate' | 'promoted'
   ai_confidence: number | null
   ai_source_content_hash: string | null
   ai_provenance: string | null
@@ -344,7 +345,7 @@ export interface EffectiveArticleLabel {
 /** Returns deduplicated rule and AI label membership for an article. */
 export function getEffectiveArticleLabels(articleId: number): EffectiveArticleLabel[] {
   return getDb().prepare(`
-    SELECT l.id, l.name, l.origin,
+    SELECT l.id, l.name, l.origin, l.lifecycle_status,
            aal.confidence AS ai_confidence,
            aal.source_content_hash AS ai_source_content_hash,
            aal.provenance AS ai_provenance
