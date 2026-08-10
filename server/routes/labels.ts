@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
-import { getLabels, getLabelById, createLabel, updateLabel, deleteLabel, getArticlesByLabel } from '../db.js'
+import { getLabels, getLabelById, createLabel, updateLabel, deleteLabel, getArticlesByLabel, promoteAiLabel, dismissAiLabel, mergeAiLabel } from '../db.js'
 import { requireJson } from '../auth.js'
 import { NumericIdParams, parseOrBadRequest } from '../lib/validation.js'
 
@@ -36,8 +36,33 @@ const LabelArticlesQuery = z.object({
 
 export async function labelRoutes(api: FastifyInstance): Promise<void> {
   api.get('/api/labels', async (request, reply) => {
-    const unreadOnly = (request.query as Record<string, string>).unread === '1'
-    reply.send({ labels: getLabels({ unreadOnly }) })
+    const query = request.query as Record<string, string>
+    reply.send({ labels: getLabels({ unreadOnly: query.unread === '1', includeCandidates: query.include_candidates === '1' }) })
+  })
+
+  api.post('/api/labels/:id/promote', { preHandler: [requireJson] }, async (request, reply) => {
+    const params = parseOrBadRequest(NumericIdParams, request.params, reply)
+    if (!params) return
+    const label = promoteAiLabel(params.id)
+    if (!label) { reply.status(400).send({ error: 'Only AI candidates can be promoted' }); return }
+    reply.send(label)
+  })
+
+  api.post('/api/labels/:id/dismiss', { preHandler: [requireJson] }, async (request, reply) => {
+    const params = parseOrBadRequest(NumericIdParams, request.params, reply)
+    if (!params) return
+    const label = dismissAiLabel(params.id)
+    if (!label) { reply.status(400).send({ error: 'Only AI candidates can be dismissed' }); return }
+    reply.send(label)
+  })
+
+  api.post('/api/labels/:id/merge', { preHandler: [requireJson] }, async (request, reply) => {
+    const params = parseOrBadRequest(NumericIdParams, request.params, reply)
+    if (!params) return
+    const body = parseOrBadRequest(z.object({ target_label_id: z.coerce.number().int().positive() }), request.body, reply)
+    if (!body) return
+    try { reply.send(mergeAiLabel(params.id, body.target_label_id)) }
+    catch (error) { reply.status(400).send({ error: error instanceof Error ? error.message : String(error) }) }
   })
 
   api.get('/api/labels/:id', async (request, reply) => {

@@ -182,9 +182,12 @@ export function rebuildAllLabelMemberships(): void {
 // Label CRUD
 // ---------------------------------------------------------------------------
 
-export function getLabels(opts: { unreadOnly?: boolean } = {}): LabelWithCount[] {
+export function getLabels(opts: { unreadOnly?: boolean; includeCandidates?: boolean } = {}): LabelWithCount[] {
+  const lifecycle = opts.includeCandidates
+    ? "origin = 'user' OR lifecycle_status IN ('candidate', 'promoted')"
+    : "origin = 'user' OR lifecycle_status = 'promoted'"
   const rows = getDb().prepare(
-    "SELECT * FROM labels WHERE origin = 'user' OR lifecycle_status = 'promoted' ORDER BY sort_order ASC, name COLLATE NOCASE ASC",
+    `SELECT * FROM labels WHERE (${lifecycle}) AND lifecycle_status != 'dismissed' ORDER BY sort_order ASC, name COLLATE NOCASE ASC`,
   ).all() as Label[]
 
   // Counts come from the materialized membership table — one grouped query for
@@ -194,6 +197,7 @@ export function getLabels(opts: { unreadOnly?: boolean } = {}): LabelWithCount[]
     SELECT al.label_id AS label_id, COUNT(*) AS n
     FROM effective_article_labels al
     JOIN active_articles a ON a.id = al.article_id
+    JOIN labels l ON l.id = al.label_id AND (l.origin = 'user' OR l.lifecycle_status = 'promoted')
     WHERE 1=1${unreadClause}
     GROUP BY al.label_id
   `).all() as { label_id: number; n: number }[]
@@ -294,6 +298,34 @@ export function deleteLabel(id: number): boolean {
   return result.changes > 0
 }
 
+export function promoteAiLabel(id: number): Label | undefined {
+  const result = getDb().prepare("UPDATE labels SET lifecycle_status = 'promoted' WHERE id = ? AND origin = 'ai' AND lifecycle_status = 'candidate'").run(id)
+  return result.changes ? getLabelById(id) : undefined
+}
+
+export function dismissAiLabel(id: number): Label | undefined {
+  const result = getDb().prepare("UPDATE labels SET lifecycle_status = 'dismissed' WHERE id = ? AND origin = 'ai' AND lifecycle_status = 'candidate'").run(id)
+  return result.changes ? getLabelById(id) : undefined
+}
+
+export function mergeAiLabel(sourceId: number, targetId: number): Label | undefined {
+  if (sourceId === targetId) throw new Error('Cannot merge a label into itself')
+  const db = getDb()
+  if (!db.prepare("SELECT 1 FROM labels WHERE id = ? AND origin = 'ai' AND lifecycle_status = 'candidate'").get(sourceId)) throw new Error('Source must be an AI candidate')
+  if (!db.prepare("SELECT 1 FROM labels WHERE id = ? AND lifecycle_status != 'dismissed' AND (origin = 'user' OR lifecycle_status = 'promoted')").get(targetId)) throw new Error('Target must be a user or promoted label')
+  db.transaction(() => {
+    db.prepare(`INSERT INTO article_ai_labels (article_id, label_id, confidence, source_content_hash, provenance)
+      SELECT article_id, ?, confidence, source_content_hash, provenance FROM article_ai_labels WHERE label_id = ?
+      ON CONFLICT(article_id, label_id) DO UPDATE SET
+        confidence = CASE WHEN excluded.confidence > article_ai_labels.confidence THEN excluded.confidence ELSE article_ai_labels.confidence END,
+        source_content_hash = CASE WHEN excluded.confidence > article_ai_labels.confidence THEN excluded.source_content_hash ELSE article_ai_labels.source_content_hash END,
+        provenance = CASE WHEN excluded.confidence > article_ai_labels.confidence THEN excluded.provenance ELSE article_ai_labels.provenance END,
+        updated_at = datetime('now')`).run(targetId, sourceId)
+    db.prepare('DELETE FROM labels WHERE id = ?').run(sourceId)
+  })()
+  return getLabelById(targetId)
+}
+
 // ---------------------------------------------------------------------------
 // Article queries
 // ---------------------------------------------------------------------------
@@ -310,6 +342,7 @@ export function getArticlesByLabel(
     SELECT COUNT(*) AS n
     FROM effective_article_labels al
     JOIN active_articles a ON a.id = al.article_id
+    JOIN labels l ON l.id = al.label_id AND (l.origin = 'user' OR l.lifecycle_status = 'promoted')
     WHERE al.label_id = ?${unreadClause}
   `).get(labelId) as { n: number }).n
 
@@ -320,6 +353,7 @@ export function getArticlesByLabel(
            aal.confidence AS ai_confidence
     FROM effective_article_labels al
     JOIN active_articles a ON a.id = al.article_id
+    JOIN labels l ON l.id = al.label_id AND (l.origin = 'user' OR l.lifecycle_status = 'promoted')
     JOIN feeds f ON f.id = a.feed_id
     LEFT JOIN article_ai_labels aal ON aal.article_id = al.article_id AND aal.label_id = al.label_id
     WHERE al.label_id = ?${unreadClause}
@@ -353,7 +387,7 @@ export function getEffectiveArticleLabels(articleId: number): EffectiveArticleLa
     JOIN labels l ON l.id = eal.label_id
     LEFT JOIN article_ai_labels aal
       ON aal.article_id = eal.article_id AND aal.label_id = eal.label_id
-    WHERE eal.article_id = ?
+    WHERE eal.article_id = ? AND (l.origin = 'user' OR l.lifecycle_status = 'promoted')
     ORDER BY l.sort_order ASC, l.name COLLATE NOCASE ASC
   `).all(articleId) as EffectiveArticleLabel[]
 }

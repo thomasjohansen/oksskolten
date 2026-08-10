@@ -40,8 +40,8 @@ export function getAiLabelJob(articleId: number): AiLabelJob | undefined { retur
 function retryAt(attempts: number, now: number): number { return now + Math.min(MAX_BACKOFF, 1_000 * (2 ** Math.max(0, attempts - 1))) }
 function findOrCreateLabel(name: string): number {
   const normalized = normalizeLabelName(name); const db = getDb()
-  const existing = db.prepare('SELECT id FROM labels WHERE normalized_name = ?').get(normalized) as { id: number } | undefined
-  if (existing) return existing.id
+  const existing = db.prepare('SELECT id, lifecycle_status FROM labels WHERE normalized_name = ?').get(normalized) as { id: number; lifecycle_status: string } | undefined
+  if (existing) return existing.lifecycle_status === 'dismissed' ? 0 : existing.id
   const config = db.prepare("SELECT enabled, allow_new_labels FROM static_plugin_config WHERE plugin_id = 'omos.ai-labels'").get() as { enabled: number; allow_new_labels: number }
   if (!config.enabled || !config.allow_new_labels) return 0
   const info = db.prepare("INSERT INTO labels (name, match_text, match_field, sort_order, auto_summarize, exclusive, origin, lifecycle_status, normalized_name) VALUES (?, '', 'both', (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM labels), 0, 0, 'ai', 'candidate', ?)").run(name, normalized)
@@ -78,7 +78,7 @@ export async function runAiLabelJobs(options: { batchSize?: number; now?: number
       if (!isStaticPluginEnabled('omos.ai-labels')) { db.prepare("UPDATE ai_label_jobs SET status = 'superseded', error = 'Plugin disabled', completed_at = datetime('now'), lease_token = NULL, lease_expires_at = NULL WHERE id = ? AND lease_token = ?").run(job.id, job.lease_token); continue }
       const article = db.prepare('SELECT full_text FROM articles WHERE id = ?').get(job.article_id) as { full_text: string | null } | undefined
       if (!article?.full_text?.trim() || hash(article.full_text) !== job.content_hash) throw new Error('Stale AI label input')
-      const availableLabels = db.prepare('SELECT id, name FROM labels ORDER BY id').all() as { id: number; name: string }[]
+      const availableLabels = db.prepare("SELECT id, name FROM labels WHERE lifecycle_status != 'dismissed' ORDER BY id").all() as { id: number; name: string }[]
       const candidates = validateAiLabels(await extractAiLabels(article.full_text, availableLabels))
       const current = db.prepare('SELECT full_text FROM articles WHERE id = ?').get(job.article_id) as { full_text: string | null } | undefined
       if (!current?.full_text?.trim() || hash(current.full_text) !== job.content_hash) throw new Error('Stale AI label input')

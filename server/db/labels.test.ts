@@ -28,6 +28,22 @@ beforeEach(() => {
 })
 
 describe('label membership materialization', () => {
+  it('reapplies the dismissed-label migration while preserving lifecycle rows and the effective view', () => {
+    const articleId = addArticle('Migration article')
+    const candidate = createLabel({ name: 'Migration candidate', rules: [] })
+    const promoted = createLabel({ name: 'Migration promoted', rules: [] })
+    getDb().prepare("UPDATE labels SET origin = 'ai', lifecycle_status = 'candidate' WHERE id = ?").run(candidate.id)
+    getDb().prepare("UPDATE labels SET origin = 'ai', lifecycle_status = 'promoted' WHERE id = ?").run(promoted.id)
+    getDb().prepare("INSERT INTO article_ai_labels (article_id, label_id, confidence, source_content_hash) VALUES (?, ?, .9, 'migration-hash'), (?, ?, .95, 'migration-hash')").run(articleId, candidate.id, articleId, promoted.id)
+    getDb().exec('DROP VIEW effective_article_labels')
+    getDb().prepare("DELETE FROM _migrations WHERE name = '0022_ai_label_dismissed.sql'").run()
+
+    expect(() => runMigrations()).not.toThrow()
+    expect(getDb().prepare('SELECT lifecycle_status FROM labels WHERE id = ?').get(candidate.id)).toMatchObject({ lifecycle_status: 'candidate' })
+    expect(getDb().prepare('SELECT lifecycle_status FROM labels WHERE id = ?').get(promoted.id)).toMatchObject({ lifecycle_status: 'promoted' })
+    expect(getDb().prepare('SELECT article_id, label_id FROM effective_article_labels WHERE article_id = ?').all(articleId)).toHaveLength(2)
+  })
+
   it('replaces a stale effective membership view with rule and AI membership', () => {
     const articleIds = [addArticle('AI-only article 1'), addArticle('AI-only article 2'), addArticle('AI-only article 3')]
     const label = createLabel({ name: 'AI subject', rules: [] })

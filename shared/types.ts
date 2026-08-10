@@ -98,7 +98,7 @@ export interface EffectiveArticleLabel {
   id: number
   name: string
   origin: 'user' | 'ai'
-  lifecycle_status: 'candidate' | 'promoted'
+  lifecycle_status: 'candidate' | 'promoted' | 'dismissed'
   ai_confidence: number | null
   ai_source_content_hash: string | null
   ai_provenance: string | null
@@ -122,7 +122,7 @@ export interface Label {
   auto_summarize: number
   exclusive: number
   origin?: 'user' | 'ai'
-  lifecycle_status?: 'candidate' | 'promoted'
+  lifecycle_status?: 'candidate' | 'promoted' | 'dismissed'
   rules: LabelRule[]
 }
 

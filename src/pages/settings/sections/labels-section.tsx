@@ -11,6 +11,7 @@ import type { LabelWithCount } from '../../../../shared/types'
 
 type MatchField = 'title' | 'full_text' | 'both'
 type RuleType = 'and' | 'or' | 'not'
+type SettingsLabel = LabelWithCount & { ai_confidence?: number | null }
 
 interface RuleForm {
   match_text: string
@@ -46,17 +47,58 @@ export function LabelsSection() {
   const { t } = useI18n()
   const { settings } = useAppLayout()
   const { mutate: globalMutate } = useSWRConfig()
-  const { data } = useSWR<{ labels: LabelWithCount[] }>('/api/labels', fetcher)
+  const { data } = useSWR<{ labels: SettingsLabel[] }>('/api/labels?include_candidates=1', fetcher)
   const labels = useMemo(() => data?.labels ?? [], [data])
+  const candidates = useMemo(() => labels.filter(label => label.lifecycle_status === 'candidate'), [labels])
+  const visibleLabels = useMemo(() => labels.filter(label => label.lifecycle_status !== 'candidate'), [labels])
 
   const [form, setForm] = useState<LabelForm>(EMPTY_FORM)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [mergeTargets, setMergeTargets] = useState<Record<number, string>>({})
+  const [candidateBusyId, setCandidateBusyId] = useState<number | null>(null)
+  const [candidateErrorId, setCandidateErrorId] = useState<number | null>(null)
+  const [dismissId, setDismissId] = useState<number | null>(null)
 
   const revalidate = useCallback(() => {
-    void globalMutate((key: unknown) => typeof key === 'string' && key.startsWith('/api/labels'))
+    void globalMutate((key: unknown) => typeof key === 'string' && (
+      key.startsWith('/api/labels') || key.startsWith('/api/feeds') || key.startsWith('/api/articles')
+    ))
   }, [globalMutate])
+
+  const handleCandidateAction = useCallback(async (id: number, action: 'promote' | 'dismiss') => {
+    setCandidateBusyId(id)
+    setCandidateErrorId(null)
+    try {
+      const url = action === 'promote'
+        ? `/api/labels/${id}/promote`
+        : `/api/labels/${id}/dismiss`
+      await apiPost(url)
+      revalidate()
+      if (action === 'dismiss') setDismissId(null)
+    } catch {
+      setCandidateErrorId(id)
+    } finally {
+      setCandidateBusyId(null)
+    }
+  }, [revalidate])
+
+  const handleMerge = useCallback(async (id: number) => {
+    const targetId = Number(mergeTargets[id])
+    if (!targetId) return
+    setCandidateBusyId(id)
+    setCandidateErrorId(null)
+    try {
+      await apiPost(`/api/labels/${id}/merge`, { target_label_id: targetId })
+      setMergeTargets(current => ({ ...current, [id]: '' }))
+      revalidate()
+    } catch {
+      setCandidateErrorId(id)
+    } finally {
+      setCandidateBusyId(null)
+    }
+  }, [mergeTargets, revalidate])
 
   const handleStartEdit = useCallback((label: LabelWithCount) => {
     setEditingId(label.id)
@@ -112,6 +154,41 @@ export function LabelsSection() {
       <h2 className="text-base font-semibold text-text mb-1">{t('settings.labels')}</h2>
       <p className="text-xs text-muted mb-4">{t('settings.labelsDesc')}</p>
 
+      {candidates.length > 0 && (
+        <div className="mb-5 rounded-lg border border-accent/30 bg-accent/5 p-3" aria-labelledby="label-candidates-title">
+          <h3 id="label-candidates-title" className="text-sm font-medium text-text">{t('settings.labelCandidates')}</h3>
+          <p className="mt-0.5 text-xs text-muted">{t('settings.labelCandidatesDesc')}</p>
+          <div className="mt-2 space-y-2">
+            {candidates.map(candidate => (
+              <div key={candidate.id} className="rounded-md border border-border bg-bg-card px-2.5 py-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="text-sm font-medium text-text">{candidate.name}</span>
+                    <span className="ml-2 text-xs text-muted">{t('settings.labelCandidateArticles', { count: String(candidate.article_count) })}</span>
+                    {candidate.ai_confidence !== null && candidate.ai_confidence !== undefined && <span className="ml-2 text-xs text-muted">{Math.round(candidate.ai_confidence * 100)}%</span>}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button type="button" disabled={candidateBusyId === candidate.id} onClick={() => void handleCandidateAction(candidate.id, 'promote')} className="rounded-md bg-accent px-2 py-1 text-xs font-medium text-accent-text hover:opacity-90 disabled:opacity-50">{t('settings.labelPromote')}</button>
+                    <select
+                      aria-label={t('settings.labelMergeTarget')}
+                      value={mergeTargets[candidate.id] ?? ''}
+                      onChange={event => setMergeTargets(current => ({ ...current, [candidate.id]: event.target.value }))}
+                      className="h-7 max-w-36 rounded-md border border-border bg-bg px-1.5 text-xs text-text"
+                    >
+                      <option value="">{t('settings.labelMergeChoose')}</option>
+                      {visibleLabels.filter(target => target.origin === 'user' || target.lifecycle_status === 'promoted').map(target => <option key={target.id} value={target.id}>{target.name}</option>)}
+                    </select>
+                    <button type="button" disabled={candidateBusyId === candidate.id || !mergeTargets[candidate.id]} onClick={() => void handleMerge(candidate.id)} className="rounded-md border border-border px-2 py-1 text-xs text-text hover:bg-hover disabled:opacity-50">{t('settings.labelMerge')}</button>
+                    <button type="button" disabled={candidateBusyId === candidate.id} onClick={() => setDismissId(candidate.id)} className="rounded-md px-2 py-1 text-xs text-muted hover:text-error disabled:opacity-50">{t('settings.labelDismiss')}</button>
+                  </div>
+                </div>
+                {candidateErrorId === candidate.id && <p role="alert" className="mt-1 text-xs text-error">{t('settings.labelCandidateError')}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="mb-5">
         <p className="text-sm text-text mb-2">{t('settings.labelUnreadOnly')}</p>
         <RadioGroup
@@ -126,11 +203,11 @@ export function LabelsSection() {
       </div>
 
       <div className="space-y-2">
-        {labels.length === 0 && !showAdd && (
+        {visibleLabels.length === 0 && !showAdd && (
           <p className="text-sm text-muted">{t('settings.labelsEmpty')}</p>
         )}
 
-        {labels.map((label) =>
+        {visibleLabels.map((label) =>
           editingId === label.id ? (
             <LabelFormRow
               key={label.id}
@@ -179,6 +256,15 @@ export function LabelsSection() {
           confirmLabel={t('feeds.delete')}
           onConfirm={handleDelete}
           onCancel={() => setDeleteId(null)}
+        />
+      )}
+      {dismissId !== null && (
+        <ConfirmDialog
+          title={t('settings.labelDismiss')}
+          message={t('settings.labelDismissConfirm')}
+          confirmLabel={t('settings.labelDismissConfirmAction')}
+          onConfirm={() => void handleCandidateAction(dismissId, 'dismiss')}
+          onCancel={() => setDismissId(null)}
         />
       )}
     </section>

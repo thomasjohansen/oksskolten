@@ -28,6 +28,15 @@ describe('AI Labels plugin', () => {
     expect(getDb().prepare('SELECT COUNT(*) AS n FROM article_ai_labels WHERE article_id = ?').get(id)).toMatchObject({ n: 0 })
   })
 
+  it('excludes dismissed normalized names from prompts and recreation', async () => {
+    getDb().prepare("INSERT INTO labels (name, match_text, match_field, normalized_name, origin, lifecycle_status) VALUES ('Dismissed Subject', '', 'both', 'dismissed subject', 'ai', 'dismissed')").run()
+    extractAiLabels.mockResolvedValue([{ name: 'Dismissed Subject', confidence: 0.99, justification: 'A materially distinct recurring subject in this article' }])
+    const id = article(); enqueueAiLabelsForArticle(id); await runAiLabelJobs()
+    expect(extractAiLabels).toHaveBeenCalledWith('Climate policy article', [])
+    expect(getDb().prepare("SELECT COUNT(*) AS n FROM labels WHERE normalized_name = 'dismissed subject'").get()).toMatchObject({ n: 1 })
+    expect(getDb().prepare('SELECT COUNT(*) AS n FROM article_ai_labels WHERE article_id = ?').get(id)).toMatchObject({ n: 0 })
+  })
+
   it('validates confidence/candidate bounds and keeps stale jobs from writing', async () => {
     expect(() => validateAiLabels([{ name: 'a', confidence: 2 }])).toThrow(/invalid/i)
     let release!: () => void; extractAiLabels.mockImplementation(async () => { await new Promise<void>(resolve => { release = resolve }); return [{ name: 'Climate', confidence: 0.9 }] })
@@ -43,13 +52,13 @@ describe('AI Labels plugin', () => {
     expect(getDb().prepare('SELECT status, attempts FROM ai_label_jobs WHERE article_id = ?').get(id)).toMatchObject({ status: 'dead', attempts: 5 })
   })
 
-  it('keeps new AI labels as candidates but includes them in article membership', async () => {
+  it('keeps new AI labels as candidates but hides them from article membership', async () => {
     extractAiLabels.mockResolvedValue([{ name: 'New Subject', confidence: 0.95, justification: 'A materially distinct recurring subject in this article' }])
     const id = article(); enqueueAiLabelsForArticle(id); await runAiLabelJobs()
     const label = getDb().prepare("SELECT id, lifecycle_status FROM labels WHERE name = 'New Subject'").get() as { id: number; lifecycle_status: string }
     expect(label.lifecycle_status).toBe('candidate')
     expect(getLabels().some(item => item.id === label.id)).toBe(false)
-    expect(getArticlesByLabel(label.id, { limit: 20, offset: 0 }).total).toBe(1)
+    expect(getArticlesByLabel(label.id, { limit: 20, offset: 0 }).total).toBe(0)
   })
 
   it('promotes after three articles with two high-confidence assignments', async () => {
