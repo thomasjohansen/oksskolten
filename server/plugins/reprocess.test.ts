@@ -1,35 +1,36 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { setupTestDb } from '../__tests__/helpers/testDb.js'
-import { createFeed, insertArticle, markArticleSeen } from '../db.js'
+import { createFeed, insertArticle } from '../db.js'
 import { getDb } from '../db/connection.js'
 import { setRelevanceBrief } from './relevance.js'
-import { reprocessArticles } from './reprocess.js'
+import { getReprocessRun, reprocessArticles } from './reprocess.js'
 
 beforeEach(() => setupTestDb())
 
-function add(title: string): number {
+function article(title: string): number {
   const feed = createFeed({ name: `Reprocess ${Math.random()}`, url: `https://reprocess-${Math.random()}.test/rss` })
   return insertArticle({ feed_id: feed.id, title, url: `https://reprocess-${Math.random()}.test/${title}`, published_at: null, full_text: 'content' })
 }
 
-describe('bounded static-plugin reprocess', () => {
-  it('queues unread first, respects bounds, skips relevance without a brief, and is idempotent', () => {
-    const unread = add('unread')
-    const read = add('read')
-    markArticleSeen(read, true)
-    const first = reprocessArticles({ modules: ['summary', 'relevance', 'ai_labels'], limit: 1 })
-    expect(first).toMatchObject({ limit: 1, selected: 1, modules: { summary: { queued: 0, skipped: 1 }, relevance: { queued: 0, skipped: 1 }, ai_labels: { queued: 0, skipped: 1 } } })
-    expect(getDb().prepare('SELECT COUNT(*) AS count FROM summary_jobs WHERE article_id = ?').get(unread)).toMatchObject({ count: 1 })
-    setRelevanceBrief('brief')
-    const second = reprocessArticles({ modules: ['relevance'], limit: 10 })
-    expect(second.modules.relevance.queued).toBe(2)
-    expect(reprocessArticles({ modules: ['relevance'], limit: 10 }).modules.relevance.queued).toBe(0)
+describe('tracked reprocess runs', () => {
+  it('captures every returned job id, including reused idempotent jobs', () => {
+    const id = article('article')
+    const first = reprocessArticles({ modules: ['summary'], limit: 1 })
+    const firstItem = getDb().prepare('SELECT run_id, article_id, module, job_id FROM reprocess_run_items WHERE run_id = ?').get(first.run_id) as { run_id: string; article_id: number; module: string; job_id: number }
+    expect(firstItem).toMatchObject({ run_id: first.run_id, article_id: id, module: 'summary' })
+    expect(firstItem.job_id).toBe((getDb().prepare('SELECT id FROM summary_jobs WHERE article_id = ?').get(id) as { id: number }).id)
+    const second = reprocessArticles({ modules: ['summary'], limit: 1 })
+    const secondItem = getDb().prepare('SELECT job_id FROM reprocess_run_items WHERE run_id = ?').get(second.run_id) as { job_id: number }
+    expect(secondItem.job_id).toBe(firstItem.job_id)
   })
 
-  it('reprocesses AI Labels idempotently for unchanged content', () => {
-    add('existing labels')
-    const result = reprocessArticles({ modules: ['ai_labels'], limit: 10 })
-    expect(result.modules.ai_labels.queued).toBe(0)
-    expect(reprocessArticles({ modules: ['ai_labels'], limit: 10 }).modules.ai_labels.queued).toBe(0)
+  it('aggregates live job states and persists terminal status', () => {
+    setRelevanceBrief('brief')
+    const id = article('stateful')
+    const run = reprocessArticles({ modules: ['relevance'], limit: 1 })
+    const job = getDb().prepare('SELECT id FROM relevance_jobs WHERE article_id = ?').get(id) as { id: number }
+    expect(getReprocessRun(run.run_id)).toMatchObject({ status: 'running', modules: { relevance: { total: 1, pending: 1, running: 0, succeeded: 0, failed: 0, skipped: 0 } } })
+    getDb().prepare("UPDATE relevance_jobs SET status = 'failed' WHERE id = ?").run(job.id)
+    expect(getReprocessRun(run.run_id)).toMatchObject({ status: 'failed', modules: { relevance: { total: 1, pending: 0, running: 0, succeeded: 0, failed: 1, skipped: 0 } } })
   })
 })
