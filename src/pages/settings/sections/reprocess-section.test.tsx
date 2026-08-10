@@ -28,7 +28,11 @@ describe('ReprocessSection', () => {
       modules: ['summary', 'relevance', 'topics'],
       limit: 50,
     }))
-    expect(screen.getByText('plugins.reprocess.result')).toBeTruthy()
+    expect(screen.getByText('plugins.reprocess.checked')).toBeTruthy()
+    expect(screen.getByText('plugins.summary.title')).toBeTruthy()
+    expect(screen.getByText('plugins.relevance.title')).toBeTruthy()
+    expect(screen.getByText('plugins.topics.title')).toBeTruthy()
+    expect(screen.getAllByText('plugins.reprocess.moduleCounts')).toHaveLength(3)
   })
 
   it('reports a queueing error', async () => {

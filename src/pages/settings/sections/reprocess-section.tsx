@@ -29,9 +29,6 @@ export function ReprocessSection() {
     }
   }
 
-  const queued = result ? result.modules.summary.queued + result.modules.relevance.queued + result.modules.topics.queued : 0
-  const skipped = result ? result.modules.summary.skipped + result.modules.relevance.skipped + result.modules.topics.skipped : 0
-
   return (
     <section aria-labelledby="reprocess-title" className="rounded-xl border border-border bg-bg-subtle/30 p-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -50,10 +47,20 @@ export function ReprocessSection() {
         </button>
       </div>
       {result && (
-        <p role="status" className="mt-3 flex items-center gap-1.5 text-xs text-accent">
+        <div role="status" className="mt-3 flex items-start gap-1.5 text-xs text-accent">
           <CheckCircle2 size={14} />
-          {t('plugins.reprocess.result').replace('{queued}', String(queued)).replace('{skipped}', String(skipped)).replace('{selected}', String(result.selected))}
-        </p>
+          <div>
+            <p>{t('plugins.reprocess.checked').replace('{selected}', String(result.selected))}</p>
+            <ul className="mt-1 space-y-0.5 text-muted">
+              {(['summary', 'relevance', 'topics'] as const).map(module => (
+                <li key={module} className="flex flex-wrap gap-x-2">
+                  <span className="font-medium text-text">{t(`plugins.${module}.title` as 'plugins.summary.title')}</span>
+                  <span>{t('plugins.reprocess.moduleCounts').replace('{queued}', String(result.modules[module].queued)).replace('{skipped}', String(result.modules[module].skipped))}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       )}
       {error && (
         <p role="alert" className="mt-3 flex items-center gap-1.5 text-xs text-error">
