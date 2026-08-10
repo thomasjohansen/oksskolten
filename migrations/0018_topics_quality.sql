@@ -1,0 +1,2 @@
+ALTER TABLE topics_jobs ADD COLUMN topics_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE article_topics ADD COLUMN topics_version INTEGER NOT NULL DEFAULT 1;

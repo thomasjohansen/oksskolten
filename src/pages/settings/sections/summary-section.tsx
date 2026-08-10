@@ -1,13 +1,7 @@
 import useSWR from 'swr'
 import { useI18n } from '../../../lib/i18n'
 import { fetcher } from '../../../lib/fetcher'
-import { PluginHealthStatus, PluginToggle, type PluginHealth } from './plugin-control'
-
-export interface SummaryHealth { pending: number; running: number; failed: number; succeeded: number }
-
-export function getSummaryHealth(health: PluginHealth): SummaryHealth {
-  return { pending: health.pending, running: health.running, failed: health.failed + health.dead, succeeded: health.succeeded }
-}
+import { PluginToggle, type PluginHealth } from './plugin-control'
 
 export function SummarySection() {
   const { t } = useI18n()
@@ -22,7 +16,7 @@ export function SummarySection() {
         </div>
         <PluginToggle health={data} onChange={next => void mutate(next, { revalidate: false })} />
       </div>
-      <PluginHealthStatus health={data} />
+      {!data.enabled && <p className="mt-3 text-xs text-muted">{t('plugins.disabledDesc')}</p>}
     </section>
   )
 }

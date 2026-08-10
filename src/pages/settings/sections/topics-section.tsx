@@ -1,7 +1,7 @@
 import useSWR from 'swr'
 import { fetcher } from '../../../lib/fetcher'
 import { useI18n } from '../../../lib/i18n'
-import { PluginHealthStatus, PluginToggle, type PluginHealth } from './plugin-control'
+import { PluginToggle, type PluginHealth } from './plugin-control'
 
 export function TopicsSection() {
   const { t } = useI18n()
@@ -16,7 +16,7 @@ export function TopicsSection() {
         </div>
         <PluginToggle health={data} onChange={next => void mutate(next, { revalidate: false })} />
       </div>
-      <PluginHealthStatus health={data} />
+      {!data.enabled && <p className="mt-3 text-xs text-muted">{t('plugins.disabledDesc')}</p>}
     </section>
   )
 }

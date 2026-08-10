@@ -148,8 +148,8 @@ const relevanceConfig: AiTaskConfig = {
   buildPrompt: text => applyArticle(RELEVANCE_PROMPT(getSetting('relevance.brief') || ''), text),
 }
 
-const TOPICS_PROMPT = `Extract the main free-form topics represented by this article.
-Return only a strict JSON array of at most 7 short topic strings. Do not use a fixed taxonomy, labels, or categories. Use the article's own wording where useful.
+const TOPICS_PROMPT = `Extract 1-5 broad, reader-facing subjects suitable for browsing this article.
+Subjects may be domains, public issues, places, institutions, people, or major events. Return only a strict JSON array of concise 1-4 word noun phrases, at most 50 characters each. Do not use a fixed taxonomy, labels, categories, URLs, code, implementation details, or claim-like sentences. Prefer recognizable subjects over technical keywords.
 
 --- Article body ---
 {{article}}`

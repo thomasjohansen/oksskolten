@@ -88,8 +88,8 @@ vi.mock('./swipeable-article-card', () => ({
 }))
 
 vi.mock('./article-card', () => ({
-  ArticleCard: ({ article }: { article: ArticleListItem }) => (
-    <div data-testid={`article-${article.id}`}>{article.title}</div>
+  ArticleCard: ({ article, relevanceScore }: { article: ArticleListItem; relevanceScore?: number | null }) => (
+    <div data-testid={`article-${article.id}`}>{article.title}{relevanceScore != null && <span data-testid={`relevance-score-${article.id}`}>{relevanceScore}</span>}</div>
   ),
 }))
 
@@ -245,6 +245,26 @@ describe('ArticleList', () => {
     renderArticleList('/inbox?sort=relevance')
     expect(swrInfiniteKey?.(0, null)).toContain('sort=relevance')
     expect((screen.getByRole('combobox', { name: 'Sort articles' }) as HTMLSelectElement).value).toBe('relevance')
+  })
+
+  it('passes relevance scores only to relevance-sorted Inbox cards', () => {
+    const scoredArticle = { ...makeArticle({ id: 31 }), relevance_score: 91 }
+    swrInfiniteReturn = {
+      data: [{ articles: [scoredArticle], total: 1, has_more: false }], error: undefined, size: 1,
+      setSize: vi.fn(), isLoading: false, isValidating: false, mutate: vi.fn(),
+    }
+    renderArticleList('/inbox?sort=relevance')
+    expect(screen.getByTestId('relevance-score-31').textContent).toBe('91')
+  })
+
+  it('does not pass relevance scores to normal Inbox cards', () => {
+    const scoredArticle = { ...makeArticle({ id: 32 }), relevance_score: 91 }
+    swrInfiniteReturn = {
+      data: [{ articles: [scoredArticle], total: 1, has_more: false }], error: undefined, size: 1,
+      setSize: vi.fn(), isLoading: false, isValidating: false, mutate: vi.fn(),
+    }
+    renderArticleList('/inbox')
+    expect(screen.queryByTestId('relevance-score-32')).toBeNull()
   })
 
   it('shows error state with retry button', () => {

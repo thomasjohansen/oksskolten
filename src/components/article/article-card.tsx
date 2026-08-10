@@ -12,6 +12,7 @@ export interface ArticleDisplayConfig {
   indicatorStyle: 'dot' | 'line'
   showUnreadIndicator: boolean
   showThumbnails: boolean
+  relevanceScore?: number | null
 }
 
 interface ArticleCardProps extends ArticleDisplayConfig {
@@ -62,6 +63,12 @@ function Thumbnail({ src, articleUrl, className }: { src: string | null; article
       </svg>
     </div>
   )
+}
+
+function RelevanceScore({ score }: { score?: number | null }) {
+  const { t } = useI18n()
+  if (typeof score !== 'number' || !Number.isFinite(score)) return null
+  return <span aria-label={`${t('article.relevanceScore')}: ${Math.round(score)}`} className="rounded bg-accent/10 px-1.5 py-0.5 font-medium text-accent">{Math.round(score)}</span>
 }
 
 function LargeThumbnail({ src, articleUrl }: { src: string | null; articleUrl: string }) {
@@ -123,7 +130,7 @@ function useCardBase(article: ArticleListItem, dateMode: 'relative' | 'absolute'
 }
 
 /** List layout — classic single-column (current default) */
-function ListCard({ article, dateMode, indicatorStyle, showUnreadIndicator, showThumbnails, onClick }: ArticleCardProps) {
+function ListCard({ article, dateMode, indicatorStyle, showUnreadIndicator, showThumbnails, relevanceScore, onClick }: ArticleCardProps) {
   const { isUnread, domain, dateText, href, handleClick, originalUrl } = useCardBase(article, dateMode, onClick)
   const showIndicator = isUnread && showUnreadIndicator
 
@@ -172,6 +179,7 @@ function ListCard({ article, dateMode, indicatorStyle, showUnreadIndicator, show
               </>
             )}
             <span className="shrink-0">{dateText}</span>
+            {relevanceScore != null && <><span className="mx-0.5 shrink-0">·</span><RelevanceScore score={relevanceScore} /></>}
           </div>
         </div>
         {showThumbnails && <Thumbnail src={article.og_image} articleUrl={article.url} />}
@@ -181,7 +189,7 @@ function ListCard({ article, dateMode, indicatorStyle, showUnreadIndicator, show
 }
 
 /** Card layout — image-forward grid card */
-function GridCard({ article, dateMode, showThumbnails, onClick }: ArticleCardProps) {
+function GridCard({ article, dateMode, showThumbnails, relevanceScore, onClick }: ArticleCardProps) {
   const { isUnread, domain, dateText, href, handleClick, originalUrl } = useCardBase(article, dateMode, onClick)
 
   return (
@@ -220,6 +228,7 @@ function GridCard({ article, dateMode, showThumbnails, onClick }: ArticleCardPro
             </>
           )}
           <span className="shrink-0">{dateText}</span>
+          {relevanceScore != null && <><span className="mx-0.5 shrink-0">·</span><RelevanceScore score={relevanceScore} /></>}
         </div>
       </div>
     </a>
@@ -227,7 +236,7 @@ function GridCard({ article, dateMode, showThumbnails, onClick }: ArticleCardPro
 }
 
 /** Magazine layout — hero card (large) */
-function HeroCard({ article, dateMode, showThumbnails, onClick }: ArticleCardProps) {
+function HeroCard({ article, dateMode, showThumbnails, relevanceScore, onClick }: ArticleCardProps) {
   const { isUnread, domain, dateText, href, handleClick, originalUrl } = useCardBase(article, dateMode, onClick)
 
   return (
@@ -266,6 +275,7 @@ function HeroCard({ article, dateMode, showThumbnails, onClick }: ArticleCardPro
             </>
           )}
           <span>{dateText}</span>
+          {relevanceScore != null && <><span className="mx-0.5">·</span><RelevanceScore score={relevanceScore} /></>}
         </div>
       </div>
     </a>
@@ -273,7 +283,7 @@ function HeroCard({ article, dateMode, showThumbnails, onClick }: ArticleCardPro
 }
 
 /** Magazine layout — small card (below hero) */
-function SmallCard({ article, dateMode, showThumbnails, onClick }: ArticleCardProps) {
+function SmallCard({ article, dateMode, showThumbnails, relevanceScore, onClick }: ArticleCardProps) {
   const { isUnread, domain, dateText, href, handleClick, originalUrl } = useCardBase(article, dateMode, onClick)
 
   return (
@@ -291,6 +301,7 @@ function SmallCard({ article, dateMode, showThumbnails, onClick }: ArticleCardPr
           }`}
         >
           {article.title}
+          {relevanceScore != null && <span className="ml-1 text-[11px]"><RelevanceScore score={relevanceScore} /></span>}
         </span>
         {article.excerpt && (
           <p className="text-[12px] text-muted truncate mt-0.5">
@@ -319,7 +330,7 @@ function SmallCard({ article, dateMode, showThumbnails, onClick }: ArticleCardPr
 }
 
 /** Compact layout — title and date only */
-function CompactCard({ article, dateMode, indicatorStyle, showUnreadIndicator, onClick }: ArticleCardProps) {
+function CompactCard({ article, dateMode, indicatorStyle, showUnreadIndicator, relevanceScore, onClick }: ArticleCardProps) {
   const { isUnread, dateText, href, handleClick, originalUrl } = useCardBase(article, dateMode, onClick)
   const showIndicator = isUnread && showUnreadIndicator
 
@@ -347,7 +358,7 @@ function CompactCard({ article, dateMode, indicatorStyle, showUnreadIndicator, o
         >
           {article.title}
         </span>
-        <span className="text-[11px] text-muted shrink-0 ml-2">{dateText}</span>
+        <span className="text-[11px] text-muted shrink-0 ml-2">{dateText}{relevanceScore != null && <><span className="mx-1">·</span><RelevanceScore score={relevanceScore} /></>}</span>
       </div>
     </a>
   )

@@ -267,6 +267,7 @@ const dict = {
   'plugins.relevance.paywallDesc': { ja: '本文を読めない記事を下げます。', en: 'Downranks articles whose full text is unavailable behind a paywall.', de: 'Wertet Artikel ab, deren Volltext hinter einer Paywall nicht verfügbar ist.' },
   'plugins.relevance.distressDesc': { ja: '苦痛を伴う紛争や戦争の内容を下げます。', en: 'Downranks distressing conflict and war coverage.', de: 'Wertet belastende Konflikt- und Kriegsberichterstattung ab.' },
   'article.relevanceSignals': { ja: '評価の内訳', en: 'Why this score', de: 'Warum diese Bewertung' },
+  'article.relevanceScore': { ja: '関連性スコア', en: 'Relevance score', de: 'Relevanzwert' },
   'plugins.topics.title': { ja: 'トピック', en: 'Topics', de: 'Themen' },
   'plugins.topics.desc': { ja: '記事からAIが発見した自由形式のトピックを表示します。固定ラベルやカテゴリではありません。', en: 'AI-discovered topics from each article. These are free-form topics, not fixed labels or categories.', de: 'Von der KI entdeckte Themen aus jedem Artikel. Freie Themen, keine festen Labels oder Kategorien.' },
   'plugins.reprocess.title': { ja: '既存の記事を分析', en: 'Analyze existing articles', de: 'Bestehende Artikel analysieren' },

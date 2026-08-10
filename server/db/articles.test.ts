@@ -398,10 +398,12 @@ describe('score persistence', () => {
     const feed = seedFeed()
     const lower = seedArticle(feed.id, { url: 'https://example.com/relevance-low' })
     const higher = seedArticle(feed.id, { url: 'https://example.com/relevance-high' })
+    const unscored = seedArticle(feed.id, { url: 'https://example.com/relevance-none' })
     getDb().prepare("INSERT INTO article_relevance (article_id, score, reason, content_hash, brief_hash, brief_revision) VALUES (?, 40, 'Somewhat relevant', 'a', 'b', 1), (?, 90, 'Highly relevant', 'c', 'd', 1)").run(lower, higher)
 
     const { articles } = getArticles({ sort: 'relevance', limit: 100, offset: 0 })
-    expect(articles.map(article => article.id)).toEqual([higher, lower])
+    expect(articles.map(article => article.id)).toEqual([higher, lower, unscored])
+    expect(articles.map(article => article.relevance_score)).toEqual([90, 40, null])
   })
 
   it('recalculateScores updates only qualifying articles', () => {

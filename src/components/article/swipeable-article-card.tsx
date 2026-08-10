@@ -25,6 +25,7 @@ export function SwipeableArticleCard({
   indicatorStyle,
   showUnreadIndicator,
   showThumbnails,
+  relevanceScore,
   onClick: onClickProp,
 }: SwipeableArticleCardProps) {
   const navigate = useNavigate()
@@ -85,6 +86,7 @@ export function SwipeableArticleCard({
           indicatorStyle={indicatorStyle}
           showUnreadIndicator={showUnreadIndicator}
           showThumbnails={showThumbnails}
+          relevanceScore={relevanceScore}
           onClick={handleClick}
         />
       </motion.div>

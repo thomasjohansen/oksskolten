@@ -79,6 +79,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
     indicatorStyle,
     showUnreadIndicator: settings.showUnreadIndicator === 'on',
     showThumbnails: settings.showThumbnails === 'on',
+    relevanceScore: null,
   }), [dateMode, indicatorStyle, settings.showUnreadIndicator, settings.showThumbnails])
   const isGridLayout = layout === 'card' || layout === 'magazine'
   const { t } = useI18n()
@@ -583,12 +584,17 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
             e.preventDefault()
             setOverlayUrl(article.url)
           } : undefined
+          const rawRelevanceScore = isRelevanceSorted
+            ? (effectiveArticle as ArticleListItem & { relevance_score?: number | null }).relevance_score
+            : null
+          const relevanceScore = typeof rawRelevanceScore === 'number' && Number.isFinite(rawRelevanceScore) ? rawRelevanceScore : null
           const cardProps = {
             article: effectiveArticle,
             layout,
             isFeatured: layout === 'magazine' && index === 0,
             onClick: handleOverlayOpen,
             ...displayConfig,
+            relevanceScore,
           }
           const isKbFocused = focusedItemId === String(article.id)
           return (

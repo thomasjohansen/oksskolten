@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import useSWR from 'swr'
 import { apiPut, fetcher } from '../../../lib/fetcher'
 import { useI18n } from '../../../lib/i18n'
-import { PluginHealthStatus, PluginToggle, type PluginHealth } from './plugin-control'
+import { PluginToggle, type PluginHealth } from './plugin-control'
 
 export const SIGNAL_KEYS = ['evidence_credibility', 'public_significance', 'information_value', 'constructive_positive_impact', 'clickbait_penalty', 'paywall_penalty', 'distressing_conflict_war_penalty'] as const
 type SignalKey = typeof SIGNAL_KEYS[number]
@@ -71,7 +71,7 @@ export function RelevanceSection() {
         </div>
         <PluginToggle health={healthData} onChange={next => void toggle(next)} />
       </div>
-      <PluginHealthStatus health={healthData} />
+      {!healthData.enabled && <p className="mt-3 text-xs text-muted">{t('plugins.disabledDesc')}</p>}
       <p className="mt-4 text-xs text-muted">{t('plugins.relevance.rankingNote')}</p>
       <div className="mt-4 space-y-4">
         {SIGNAL_KEYS.map(key => (

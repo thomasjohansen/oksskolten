@@ -9,7 +9,7 @@ vi.mock('../fetcher/ai.js', async () => {
   return { ...actual, extractArticleTopics }
 })
 
-import { TOPICS_PLUGIN_MANIFEST, enqueueTopicsForArticle, getArticleTopics, getTopicsJob, runTopicsJobs } from './topics.js'
+import { TOPICS_PLUGIN_MANIFEST, enqueueTopicsForArticle, getArticleTopics, getTopicsJob, runTopicsJobs, validateTopics } from './topics.js'
 
 beforeEach(() => { setupTestDb(); extractArticleTopics.mockReset() })
 
@@ -28,6 +28,14 @@ describe('bundled Topics plugin', () => {
     expect(getArticleTopics(id)).toMatchObject({ topics: ['Climate policy', 'Renewable energy'] })
     expect(getDb().prepare('SELECT COUNT(*) AS count FROM labels').get()).toMatchObject({ count: 0 })
     expect(getTopicsJob(id)).toMatchObject({ status: 'succeeded' })
+  })
+
+  it('accepts broad reader-facing subjects and rejects technical or claim-like phrases', () => {
+    expect(validateTopics(['Climate policy', 'Copenhagen', 'Public health'])).toHaveLength(3)
+    expect(() => validateTopics(['https://example.com'])).toThrow(/broad/i)
+    expect(() => validateTopics(['Kubernetes deployment strategy'])).toThrow(/broad/i)
+    expect(() => validateTopics(['This article explains how the policy changed over time'])).toThrow(/broad/i)
+    expect(() => validateTopics(['News', 'news'])).toThrow(/broad|distinct/i)
   })
 
   it('rejects oversized or empty topic output as retryable failure', async () => {

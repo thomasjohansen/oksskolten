@@ -197,7 +197,8 @@ export function getArticles(opts: {
   const articles = allNamed<ArticleListItem>(`
     SELECT a.id, a.feed_id, f.name AS feed_name,
            a.title, a.url, a.published_at, a.lang, a.summary, a.excerpt, a.og_image, a.seen_at, a.read_at, a.bookmarked_at, a.liked_at,
-           a.score
+           a.score,
+           r.score AS relevance_score
     FROM active_articles a
     JOIN feeds f ON a.feed_id = f.id
     LEFT JOIN article_relevance r ON r.article_id = a.id
