@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, Routes, Route, Outlet, useLocation } from 'react-router-dom'
 import { LocaleContext } from '../../lib/i18n'
 import { KeyboardNavigationProvider } from '../../contexts/keyboard-navigation-context'
 import type { ArticleListItem } from '../../../shared/types'
@@ -21,6 +22,7 @@ let swrInfiniteKey: ((pageIndex: number, previousPageData: any) => string | null
 
 // Control useSWR return value for /api/feeds
 let swrFeedsData: any = undefined
+let swrRelevanceData: { enabled: boolean } | undefined = undefined
 
 vi.mock('swr/infinite', () => ({
   default: (key: typeof swrInfiniteKey) => { swrInfiniteKey = key; return swrInfiniteReturn },
@@ -30,8 +32,9 @@ vi.mock('swr', async () => {
   const actual = await vi.importActual<typeof import('swr')>('swr')
   return {
     ...actual,
-    default: (key: string) => {
+    default: (key: string | null) => {
       if (key === '/api/feeds') return { data: swrFeedsData }
+      if (key === '/api/settings/plugins/relevance') return { data: swrRelevanceData }
       return { data: undefined }
     },
     useSWRConfig: () => ({ mutate: vi.fn() }),
@@ -88,8 +91,8 @@ vi.mock('./swipeable-article-card', () => ({
 }))
 
 vi.mock('./article-card', () => ({
-  ArticleCard: ({ article, relevanceScore }: { article: ArticleListItem; relevanceScore?: number | null }) => (
-    <div data-testid={`article-${article.id}`}>{article.title}{relevanceScore != null && <span data-testid={`relevance-score-${article.id}`}>{relevanceScore}</span>}</div>
+  ArticleCard: ({ article }: { article: ArticleListItem; relevanceScore?: number | null }) => (
+    <div data-testid={`article-${article.id}`}>{article.title}</div>
   ),
 }))
 
@@ -166,9 +169,15 @@ const mockSettings = {
 function OutletWrapper() {
   return (
     <KeyboardNavigationProvider>
+      <LocationProbe />
       <Outlet context={{ settings: mockSettings, sidebarOpen: false, setSidebarOpen: vi.fn() }} />
     </KeyboardNavigationProvider>
   )
+}
+
+function LocationProbe() {
+  const location = useLocation()
+  return <output data-testid="location-search">{location.search}</output>
 }
 
 function renderArticleList(initialPath = '/inbox') {
@@ -190,6 +199,7 @@ describe('ArticleList', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     swrFeedsData = undefined
+    swrRelevanceData = undefined
     swrInfiniteKey = undefined
     mockSettings.autoMarkRead = 'off' as any
     // Stub IntersectionObserver for tests that enable autoMarkRead
@@ -247,14 +257,60 @@ describe('ArticleList', () => {
     expect((screen.getByRole('combobox', { name: 'Sort articles' }) as HTMLSelectElement).value).toBe('relevance')
   })
 
-  it('passes relevance scores only to relevance-sorted Inbox cards', () => {
+  it('defaults Inbox to relevance after the enabled state is confirmed', () => {
+    swrRelevanceData = { enabled: true }
+    swrInfiniteReturn = { data: [{ articles: [], total: 0, has_more: false }], error: undefined, size: 1, setSize: vi.fn(), isLoading: false, isValidating: false, mutate: vi.fn() }
+    renderArticleList('/inbox')
+    expect(swrInfiniteKey?.(0, null)).toContain('sort=relevance')
+    expect((screen.getByRole('combobox', { name: 'Sort articles' }) as HTMLSelectElement).value).toBe('relevance')
+  })
+
+  it('keeps Inbox newest while relevance state is disabled or unknown', () => {
+    swrInfiniteReturn = { data: [{ articles: [], total: 0, has_more: false }], error: undefined, size: 1, setSize: vi.fn(), isLoading: false, isValidating: false, mutate: vi.fn() }
+    swrRelevanceData = { enabled: false }
+    renderArticleList('/inbox')
+    expect(swrInfiniteKey?.(0, null)).not.toContain('sort=relevance')
+    expect((screen.getByRole('combobox', { name: 'Sort articles' }) as HTMLSelectElement).value).toBe('newest')
+
+    swrRelevanceData = undefined
+    renderArticleList('/inbox')
+    expect(swrInfiniteKey?.(0, null)).not.toContain('sort=relevance')
+    expect((screen.getAllByRole('combobox', { name: 'Sort articles' }).at(-1) as HTMLSelectElement).value).toBe('newest')
+  })
+
+  it('keeps explicit sort choices ahead of plugin state', () => {
+    swrRelevanceData = { enabled: false }
+    swrInfiniteReturn = { data: [{ articles: [], total: 0, has_more: false }], error: undefined, size: 1, setSize: vi.fn(), isLoading: false, isValidating: false, mutate: vi.fn() }
+    renderArticleList('/inbox?sort=relevance')
+    expect(swrInfiniteKey?.(0, null)).toContain('sort=relevance')
+
+    // Explicit newest remains newest even when relevance is enabled.
+    swrRelevanceData = { enabled: true }
+    renderArticleList('/inbox?sort=newest')
+    expect(swrInfiniteKey?.(0, null)).toContain('sort=newest')
+    expect((screen.getAllByRole('combobox', { name: 'Sort articles' }).at(-1) as HTMLSelectElement).value).toBe('newest')
+  })
+
+  it('writes explicit newest and relevance values while preserving other query parameters', async () => {
+    swrRelevanceData = { enabled: true }
+    swrInfiniteReturn = { data: [{ articles: [], total: 0, has_more: false }], error: undefined, size: 1, setSize: vi.fn(), isLoading: false, isValidating: false, mutate: vi.fn() }
+    const user = userEvent.setup()
+    renderArticleList('/inbox?feed_id=7&sort=relevance')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort articles' }), 'newest')
+    expect(screen.getByTestId('location-search').textContent).toBe('?feed_id=7&sort=newest')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort articles' }), 'relevance')
+    expect(screen.getByTestId('location-search').textContent).toBe('?feed_id=7&sort=relevance')
+  })
+
+  it('does not render relevance scores in relevance-sorted Inbox cards', () => {
     const scoredArticle = { ...makeArticle({ id: 31 }), relevance_score: 91 }
     swrInfiniteReturn = {
       data: [{ articles: [scoredArticle], total: 1, has_more: false }], error: undefined, size: 1,
       setSize: vi.fn(), isLoading: false, isValidating: false, mutate: vi.fn(),
     }
     renderArticleList('/inbox?sort=relevance')
-    expect(screen.getByTestId('relevance-score-31').textContent).toBe('91')
+    expect(swrInfiniteKey?.(0, null)).toContain('sort=relevance')
+    expect(screen.queryByText('91')).toBeNull()
   })
 
   it('does not pass relevance scores to normal Inbox cards', () => {

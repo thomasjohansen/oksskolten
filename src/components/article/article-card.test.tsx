@@ -19,9 +19,10 @@ function renderCard(relevanceScore?: number | null) {
 }
 
 describe('ArticleCard relevance score', () => {
-  it('shows a numeric score when provided', () => {
+  it('does not show a numeric score when provided', () => {
     renderCard(87)
-    expect(screen.getByLabelText('Relevance score: 87')).toBeTruthy()
+    expect(screen.queryByLabelText(/Relevance score/)).toBeNull()
+    expect(screen.queryByText('87')).toBeNull()
   })
 
   it('does not show score metadata without a score', () => {

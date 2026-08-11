@@ -56,10 +56,12 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
   const isLikes = location.pathname === '/likes'
   const isHistory = location.pathname === '/history'
   const isClips = location.pathname === '/clips'
-  const isRelevanceSorted = isInbox && new URLSearchParams(location.search).get('sort') === 'relevance'
+  const sortParam = new URLSearchParams(location.search).get('sort')
   const isCollectionView = isBookmarks || isLikes || isHistory || isClips
 
   const { data: feedsData } = useSWR<{ feeds: FeedWithCounts[] }>('/api/feeds', fetcher)
+  const { data: relevanceData } = useSWR<{ enabled: boolean }>(isInbox ? '/api/settings/plugins/relevance' : null, fetcher)
+  const isRelevanceSorted = isInbox && (sortParam === 'relevance' || (sortParam === null && relevanceData?.enabled === true))
   const feedId = feedIdParam ? Number(feedIdParam) : (isClips && clipFeedId ? clipFeedId : undefined)
   const currentFeed = feedId && feedsData ? feedsData.feeds.find(f => f.id === feedId) : undefined
   const categoryId = categoryIdParam ? Number(categoryIdParam) : undefined
@@ -102,6 +104,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
     if (likedOnly) params.set('liked', '1')
     if (readOnly) params.set('read', '1')
     if (isRelevanceSorted) params.set('sort', 'relevance')
+    else if (isInbox && sortParam === 'newest') params.set('sort', 'newest')
     if (noFloor) params.set('no_floor', '1')
     params.set('limit', String(PAGE_SIZE))
     params.set('offset', String(pageIndex * PAGE_SIZE))
@@ -504,7 +507,7 @@ export const ArticleList = forwardRef<ArticleListHandle, object>(function Articl
               onChange={event => {
                 const params = new URLSearchParams(location.search)
                 if (event.target.value === 'relevance') params.set('sort', 'relevance')
-                else params.delete('sort')
+                else params.set('sort', 'newest')
                 const query = params.toString()
                 void navigate(`${location.pathname}${query ? `?${query}` : ''}`)
               }}
