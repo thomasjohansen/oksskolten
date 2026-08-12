@@ -61,16 +61,16 @@ describe('AI Labels plugin', () => {
     expect(getArticlesByLabel(label.id, { limit: 20, offset: 0 }).total).toBe(0)
   })
 
-  it('promotes after three articles with two high-confidence assignments', async () => {
+  it('keeps recurring high-confidence assignments as candidates for manual review', async () => {
     extractAiLabels.mockResolvedValue([{ name: 'Recurring Subject', confidence: 0.95, justification: 'A materially distinct recurring subject in this article' }])
     const first = article(); enqueueAiLabelsForArticle(first); await runAiLabelJobs()
     const second = article(); enqueueAiLabelsForArticle(second); await runAiLabelJobs()
     const third = article(); enqueueAiLabelsForArticle(third); await runAiLabelJobs()
     const label = getDb().prepare("SELECT lifecycle_status FROM labels WHERE name = 'Recurring Subject'").get() as { lifecycle_status: string }
-    expect(label.lifecycle_status).toBe('promoted')
+    expect(label.lifecycle_status).toBe('candidate')
   })
 
-  it('promotion is idempotent and does not delete labels or affect user labels', async () => {
+  it('does not automatically promote labels or affect user labels', async () => {
     const user = getDb().prepare("INSERT INTO labels (name, match_text, match_field, normalized_name, origin, lifecycle_status) VALUES ('User label', 'Climate', 'title', 'user label', 'user', 'promoted')").run().lastInsertRowid as number
     extractAiLabels.mockResolvedValue([{ name: 'Stable Subject', confidence: 0.95, justification: 'A materially distinct recurring subject in this article' }])
     for (let i = 0; i < 3; i++) { const id = article(); enqueueAiLabelsForArticle(id); await runAiLabelJobs() }
@@ -78,7 +78,7 @@ describe('AI Labels plugin', () => {
     const stable = getDb().prepare("SELECT id, lifecycle_status FROM labels WHERE name = 'Stable Subject'").get() as { id: number; lifecycle_status: string }
     await runAiLabelJobs()
     expect((getDb().prepare('SELECT COUNT(*) AS n FROM labels').get() as { n: number }).n).toBe(before.n)
-    expect(getDb().prepare('SELECT lifecycle_status FROM labels WHERE id = ?').get(stable.id)).toMatchObject({ lifecycle_status: 'promoted' })
+    expect(getDb().prepare('SELECT lifecycle_status FROM labels WHERE id = ?').get(stable.id)).toMatchObject({ lifecycle_status: 'candidate' })
     expect(getDb().prepare('SELECT origin FROM labels WHERE id = ?').get(user)).toMatchObject({ origin: 'user' })
   })
 

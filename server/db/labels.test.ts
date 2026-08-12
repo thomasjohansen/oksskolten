@@ -44,6 +44,27 @@ describe('label membership materialization', () => {
     expect(getDb().prepare('SELECT article_id, label_id FROM effective_article_labels WHERE article_id = ?').all(articleId)).toHaveLength(2)
   })
 
+  it('demotes existing promoted AI labels for manual review without changing other states', () => {
+    const articleId = addArticle('Migration article')
+    const aiPromoted = createLabel({ name: 'Previously promoted AI', rules: [] })
+    const aiCandidate = createLabel({ name: 'Existing candidate', rules: [] })
+    const aiDismissed = createLabel({ name: 'Existing dismissed', rules: [] })
+    const user = createLabel({ name: 'User label', rules: [orRule('manual')] })
+    getDb().prepare("UPDATE labels SET origin = 'ai', lifecycle_status = 'promoted' WHERE id = ?").run(aiPromoted.id)
+    getDb().prepare("UPDATE labels SET origin = 'ai', lifecycle_status = 'candidate' WHERE id = ?").run(aiCandidate.id)
+    getDb().prepare("UPDATE labels SET origin = 'ai', lifecycle_status = 'dismissed' WHERE id = ?").run(aiDismissed.id)
+    getDb().prepare("INSERT INTO article_ai_labels (article_id, label_id, confidence, source_content_hash) VALUES (?, ?, .95, 'manual-review-hash')").run(articleId, aiPromoted.id)
+    getDb().prepare("DELETE FROM _migrations WHERE name = '0023_ai_label_manual_review.sql'").run()
+
+    expect(() => runMigrations()).not.toThrow()
+    expect(getDb().prepare('SELECT origin, lifecycle_status FROM labels WHERE id = ?').get(aiPromoted.id)).toMatchObject({ origin: 'ai', lifecycle_status: 'candidate' })
+    expect(getDb().prepare('SELECT lifecycle_status FROM labels WHERE id = ?').get(aiCandidate.id)).toMatchObject({ lifecycle_status: 'candidate' })
+    expect(getDb().prepare('SELECT lifecycle_status FROM labels WHERE id = ?').get(aiDismissed.id)).toMatchObject({ lifecycle_status: 'dismissed' })
+    expect(getDb().prepare('SELECT origin, lifecycle_status FROM labels WHERE id = ?').get(user.id)).toMatchObject({ origin: 'user', lifecycle_status: 'promoted' })
+    expect(getDb().prepare('SELECT label_id FROM effective_article_labels WHERE article_id = ?').all(articleId)).toEqual([{ label_id: aiPromoted.id }])
+    expect(getDb().prepare('SELECT confidence, source_content_hash FROM article_ai_labels WHERE article_id = ? AND label_id = ?').get(articleId, aiPromoted.id)).toMatchObject({ confidence: .95, source_content_hash: 'manual-review-hash' })
+  })
+
   it('replaces a stale effective membership view with rule and AI membership', () => {
     const articleIds = [addArticle('AI-only article 1'), addArticle('AI-only article 2'), addArticle('AI-only article 3')]
     const label = createLabel({ name: 'AI subject', rules: [] })

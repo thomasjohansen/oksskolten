@@ -53,21 +53,6 @@ function isUsableNovelCandidate(candidate: AiLabelCandidate): boolean {
   return candidate.confidence >= MIN_NOVEL_CONFIDENCE && !GENERIC_NOVEL_LABELS.has(normalizeLabelName(candidate.name)) && Boolean(candidate.justification && candidate.justification.length >= 20)
 }
 
-function promoteEligibleAiLabels(): void {
-  getDb().prepare(`
-    UPDATE labels
-    SET lifecycle_status = 'promoted'
-    WHERE origin = 'ai' AND lifecycle_status = 'candidate'
-      AND id IN (
-        SELECT label_id
-        FROM article_ai_labels
-        GROUP BY label_id
-        HAVING COUNT(DISTINCT article_id) >= 3
-           AND COUNT(DISTINCT CASE WHEN confidence >= 0.8 THEN article_id END) >= 2
-      )
-  `).run()
-}
-
 export async function runAiLabelJobs(options: { batchSize?: number; now?: number } = {}): Promise<number> {
   if (!isStaticPluginEnabled('omos.ai-labels')) return 0
   const now = options.now ?? Date.now(); const db = getDb()
@@ -96,7 +81,6 @@ export async function runAiLabelJobs(options: { batchSize?: number; now?: number
           if (novel) selected.push(novel)
         }
         for (const candidate of selected.slice(0, 3)) { const labelId = candidate.label_id ?? findOrCreateLabel(candidate.name); if (labelId) insert.run(job.article_id, labelId, candidate.confidence, job.content_hash) }
-        promoteEligibleAiLabels()
         db.prepare("UPDATE ai_label_jobs SET status = 'succeeded', lease_token = NULL, lease_expires_at = NULL, completed_at = datetime('now') WHERE id = ? AND lease_token = ?").run(job.id, job.lease_token)
       })()
     } catch (error) {
