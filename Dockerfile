@@ -36,7 +36,7 @@ COPY --from=build /app/dist-server ./dist-server
 COPY migrations ./migrations
 
 RUN addgroup --system app && adduser --system --ingroup app app \
- && mkdir -p /app/data && chown app:app /app/data
+ && mkdir -p /data && chown app:app /data
 USER app
 
 EXPOSE 3000

@@ -11,7 +11,7 @@ services:
       NODE_ENV: production
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
     volumes: !override
-      - ${DATA_DIR:-./data}:/data
+      - app_data:/data
     ports: !override []
     expose:
       - "3000"
@@ -40,3 +40,6 @@ services:
     networks:
       - internal
     restart: unless-stopped
+
+volumes:
+  app_data:
