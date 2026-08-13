@@ -98,6 +98,7 @@ export function RelevanceSection() {
       </div>
       {!healthData.enabled && <p className="mt-3 text-xs text-muted">{t('plugins.disabledDesc')}</p>}
       <p className="mt-4 text-xs text-muted">{t('plugins.relevance.rankingNote')}</p>
+      <p className="mt-4 text-xs text-muted tabular-nums" aria-live="polite">Remaining: {remaining}%</p>
       <div className="mt-4 space-y-4">
         {SIGNAL_KEYS.map(key => (
           <label key={key} className="block">
@@ -114,7 +115,7 @@ export function RelevanceSection() {
         ))}
       </div>
       <div className="mt-4 flex items-center justify-end gap-3">
-        {remaining > 0 && <p id="relevance-budget-help" className="text-xs text-muted" aria-live="polite">{remaining}% left to allocate</p>}
+        {remaining > 0 && <p id="relevance-budget-help" className="text-xs text-muted" aria-live="polite">Allocate the remaining {remaining}% to save.</p>}
         {feedback && <span role="status" className={`text-xs ${feedback === t('plugins.relevance.error') ? 'text-error' : 'text-accent'}`}>{feedback}</span>}
         <button type="button" onClick={() => void save()} disabled={!canSave} aria-describedby={allocated !== 100 ? 'relevance-budget-help' : undefined} className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-text hover:opacity-90 disabled:opacity-50">{saving ? t('plugins.relevance.saving') : t('plugins.relevance.save')}</button>
       </div>

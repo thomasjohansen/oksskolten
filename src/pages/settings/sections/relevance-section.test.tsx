@@ -39,22 +39,25 @@ describe('RelevanceSection', () => {
     expect(after.slice(1)).toEqual(before.slice(1))
   })
 
-  it('shows the remaining budget and only enables save at exactly 100%', async () => {
+  it('keeps a remaining summary visible and only enables save at exactly 100%', async () => {
     const user = userEvent.setup()
     render(<RelevanceSection />)
     const evidence = screen.getByRole('slider', { name: 'Evidence & credibility' })
     const significance = screen.getByRole('slider', { name: 'Public significance' })
     const save = screen.getByRole('button', { name: 'Save brief' })
 
-    expect(screen.queryByText(/left to allocate/)).toBeNull()
+    expect(screen.getByText('Remaining: 0%')).toBeTruthy()
+    expect(screen.queryByText(/Allocate the remaining/)).toBeNull()
     expect(save.hasAttribute('disabled')).toBe(true)
 
     fireEvent.change(evidence, { target: { value: '10' } })
-    expect(screen.getByText('10% left to allocate')).toBeTruthy()
+    expect(screen.getByText('Remaining: 10%')).toBeTruthy()
+    expect(screen.getByText('Allocate the remaining 10% to save.')).toBeTruthy()
     expect(save.hasAttribute('disabled')).toBe(true)
 
     fireEvent.change(significance, { target: { value: '30' } })
-    expect(screen.queryByText(/left to allocate/)).toBeNull()
+    expect(screen.getByText('Remaining: 0%')).toBeTruthy()
+    expect(screen.queryByText(/Allocate the remaining/)).toBeNull()
     expect(save.hasAttribute('disabled')).toBe(false)
 
     await user.click(save)
