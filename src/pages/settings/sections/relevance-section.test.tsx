@@ -28,6 +28,10 @@ describe('RelevanceSection', () => {
     const sliders = screen.getAllByRole('slider')
     const before = sliders.map(slider => (slider as HTMLInputElement).value)
 
+    expect(sliders.every(slider => slider.getAttribute('min') === '0')).toBe(true)
+    expect(sliders.every(slider => slider.getAttribute('max') === '100')).toBe(true)
+    expect(sliders.every(slider => slider.getAttribute('step') === '1')).toBe(true)
+
     fireEvent.change(sliders[0], { target: { value: '10' } })
 
     const after = screen.getAllByRole('slider').map(slider => (slider as HTMLInputElement).value)
@@ -42,15 +46,15 @@ describe('RelevanceSection', () => {
     const significance = screen.getByRole('slider', { name: 'Public significance' })
     const save = screen.getByRole('button', { name: 'Save brief' })
 
-    expect(screen.getByText('Allocated: 100% · Remaining: 0%')).toBeTruthy()
+    expect(screen.queryByText(/left to allocate/)).toBeNull()
     expect(save.hasAttribute('disabled')).toBe(true)
 
     fireEvent.change(evidence, { target: { value: '10' } })
-    expect(screen.getByText('Allocated: 90% · Remaining: 10%')).toBeTruthy()
+    expect(screen.getByText('10% left to allocate')).toBeTruthy()
     expect(save.hasAttribute('disabled')).toBe(true)
 
     fireEvent.change(significance, { target: { value: '30' } })
-    expect(screen.getByText('Allocated: 100% · Remaining: 0%')).toBeTruthy()
+    expect(screen.queryByText(/left to allocate/)).toBeNull()
     expect(save.hasAttribute('disabled')).toBe(false)
 
     await user.click(save)
@@ -63,7 +67,7 @@ describe('RelevanceSection', () => {
     const significance = screen.getByRole('slider', { name: 'Public significance' })
 
     fireEvent.change(evidence, { target: { value: '10' } })
-    expect(significance.getAttribute('max')).toBe('30')
+    expect(significance.getAttribute('max')).toBe('100')
 
     fireEvent.change(significance, { target: { value: '40' } })
     expect((significance as HTMLInputElement).value).toBe('30')
