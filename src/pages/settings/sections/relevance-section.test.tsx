@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { RelevanceSection, updateRelevanceWeight } from './relevance-section'
+import { RelevanceSection, SIGNAL_KEYS, updateRelevanceWeight } from './relevance-section'
 
 const mockApiPut = vi.fn()
 const mockApiPatch = vi.fn()
@@ -23,13 +23,66 @@ beforeEach(() => {
 })
 
 describe('RelevanceSection', () => {
-  it('keeps profile weights balanced and saves structured settings', async () => {
+  it('keeps every other slider unchanged when one slider moves', () => {
+    render(<RelevanceSection />)
+    const sliders = screen.getAllByRole('slider')
+    const before = sliders.map(slider => (slider as HTMLInputElement).value)
+
+    fireEvent.change(sliders[0], { target: { value: '10' } })
+
+    const after = screen.getAllByRole('slider').map(slider => (slider as HTMLInputElement).value)
+    expect(after[0]).toBe('10')
+    expect(after.slice(1)).toEqual(before.slice(1))
+  })
+
+  it('shows the remaining budget and only enables save at exactly 100%', async () => {
     const user = userEvent.setup()
     render(<RelevanceSection />)
-    const slider = screen.getByRole('slider', { name: 'Evidence & credibility' })
-    fireEvent.change(slider, { target: { value: '50' } })
+    const evidence = screen.getByRole('slider', { name: 'Evidence & credibility' })
+    const significance = screen.getByRole('slider', { name: 'Public significance' })
+    const save = screen.getByRole('button', { name: 'Save brief' })
+
+    expect(screen.getByText('Allocated: 100% · Remaining: 0%')).toBeTruthy()
+    expect(save.hasAttribute('disabled')).toBe(true)
+
+    fireEvent.change(evidence, { target: { value: '10' } })
+    expect(screen.getByText('Allocated: 90% · Remaining: 10%')).toBeTruthy()
+    expect(save.hasAttribute('disabled')).toBe(true)
+
+    fireEvent.change(significance, { target: { value: '30' } })
+    expect(screen.getByText('Allocated: 100% · Remaining: 0%')).toBeTruthy()
+    expect(save.hasAttribute('disabled')).toBe(false)
+
+    await user.click(save)
+    await waitFor(() => expect(mockApiPut).toHaveBeenCalled())
+  })
+
+  it('caps an increase at the current value plus the available budget', () => {
+    render(<RelevanceSection />)
+    const evidence = screen.getByRole('slider', { name: 'Evidence & credibility' })
+    const significance = screen.getByRole('slider', { name: 'Public significance' })
+
+    fireEvent.change(evidence, { target: { value: '10' } })
+    expect(significance.getAttribute('max')).toBe('30')
+
+    fireEvent.change(significance, { target: { value: '40' } })
+    expect((significance as HTMLInputElement).value).toBe('30')
+    expect((evidence as HTMLInputElement).value).toBe('10')
+  })
+
+  it('saves whole percentages as weights that sum to one', async () => {
+    const user = userEvent.setup()
+    render(<RelevanceSection />)
+    const evidence = screen.getByRole('slider', { name: 'Evidence & credibility' })
+    const significance = screen.getByRole('slider', { name: 'Public significance' })
+    fireEvent.change(evidence, { target: { value: '10' } })
+    fireEvent.change(significance, { target: { value: '30' } })
     await user.click(screen.getByRole('button', { name: 'Save brief' }))
     await waitFor(() => expect(mockApiPut).toHaveBeenCalledWith('/api/settings/plugins/relevance/profile', expect.objectContaining({ profile: expect.objectContaining({ name: 'Balanced', weights: expect.any(Object) }) })))
+    const payload = mockApiPut.mock.calls[0][1] as { profile: { weights: Record<string, number> } }
+    expect(Object.values(payload.profile.weights).reduce((sum, value) => sum + value, 0)).toBe(1)
+    expect(payload.profile.weights.evidence_credibility).toBe(0.1)
+    expect(payload.profile.weights.public_significance).toBe(0.3)
   })
 
   it('toggles the persisted plugin control', async () => {
@@ -39,9 +92,11 @@ describe('RelevanceSection', () => {
     expect(mockApiPatch).toHaveBeenCalledWith('/api/settings/plugins/relevance', { enabled: false })
   })
 
-  it('redistributes remaining weight so the profile always sums to one', () => {
+  it('updates only the selected weight', () => {
     const next = updateRelevanceWeight(profile.profile.weights, 'evidence_credibility', 0.5)
-    expect(Object.values(next).reduce((sum, value) => sum + value, 0)).toBeCloseTo(1)
     expect(next.evidence_credibility).toBe(0.5)
+    expect(next.public_significance).toBe(profile.profile.weights.public_significance)
+    expect(next.information_value).toBe(profile.profile.weights.information_value)
+    expect(Object.keys(next)).toHaveLength(SIGNAL_KEYS.length)
   })
 })
