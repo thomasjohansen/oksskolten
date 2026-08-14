@@ -1,109 +1,98 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { RelevanceSection, SIGNAL_KEYS, updateRelevanceWeight } from './relevance-section'
+import { RelevanceSection } from './relevance-section'
 
 const mockApiPut = vi.fn()
 const mockApiPatch = vi.fn()
-const profile = {
-  profile: { version: 1 as const, name: 'Balanced' as const, weights: {
-    evidence_credibility: 0.2, public_significance: 0.2, information_value: 0.2,
-    constructive_positive_impact: 0.15, clickbait_penalty: 0.1, paywall_penalty: 0.075, distressing_conflict_war_penalty: 0.075,
-  } }, revision: 1, configured: true, enabled: true,
-}
+const brief = { brief: 'Reliable reporting on public health and science.', revision: 3 }
 const health = { plugin_id: 'omos.relevance', enabled: true, pending: 0, running: 0, failed: 0, dead: 0, succeeded: 2 }
 
-vi.mock('../../../lib/fetcher', () => ({ fetcher: vi.fn(), apiPut: (...args: unknown[]) => mockApiPut(...args), apiPatch: (...args: unknown[]) => mockApiPatch(...args) }))
-vi.mock('swr', () => ({ default: (key: string) => key.includes('/profile') ? { data: profile, mutate: vi.fn() } : { data: health, mutate: vi.fn() } }))
+vi.mock('../../../lib/fetcher', () => ({
+  fetcher: vi.fn(),
+  apiPut: (...args: unknown[]) => mockApiPut(...args),
+  apiPatch: (...args: unknown[]) => mockApiPatch(...args),
+}))
+vi.mock('swr', () => ({
+  default: (key: string) => key === '/api/settings/relevance'
+    ? { data: brief, mutate: vi.fn() }
+    : { data: health, mutate: vi.fn() },
+}))
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockApiPut.mockResolvedValue(profile)
+  health.enabled = true
+  mockApiPut.mockResolvedValue(brief)
   mockApiPatch.mockResolvedValue(health)
 })
 
 describe('RelevanceSection', () => {
-  it('keeps every other slider unchanged when one slider moves', () => {
+  it('loads the saved reading brief without using the retired profile endpoint', () => {
     render(<RelevanceSection />)
-    const sliders = screen.getAllByRole('slider')
-    const before = sliders.map(slider => (slider as HTMLInputElement).value)
 
-    expect(sliders.every(slider => slider.getAttribute('min') === '0')).toBe(true)
-    expect(sliders.every(slider => slider.getAttribute('max') === '100')).toBe(true)
-    expect(sliders.every(slider => slider.getAttribute('step') === '1')).toBe(true)
-
-    fireEvent.change(sliders[0], { target: { value: '10' } })
-
-    const after = screen.getAllByRole('slider').map(slider => (slider as HTMLInputElement).value)
-    expect(after[0]).toBe('10')
-    expect(after.slice(1)).toEqual(before.slice(1))
+    expect((screen.getByRole('textbox', { name: 'Reading brief' }) as HTMLTextAreaElement).value).toBe(brief.brief)
+    expect(screen.getByText('Inbox scores articles by how well they match this brief.')).toBeTruthy()
+    expect(screen.getByPlaceholderText('For example: thoughtful reporting on science, cities, and the people shaping everyday life.')).toBeTruthy()
   })
 
-  it('keeps a remaining summary visible and only enables save at exactly 100%', async () => {
+  it('saves a changed brief and confirms success', async () => {
     const user = userEvent.setup()
     render(<RelevanceSection />)
-    const evidence = screen.getByRole('slider', { name: 'Evidence & credibility' })
-    const significance = screen.getByRole('slider', { name: 'Public significance' })
+    const textarea = screen.getByRole('textbox', { name: 'Reading brief' })
     const save = screen.getByRole('button', { name: 'Save brief' })
 
-    expect(screen.getByText('Remaining: 0%')).toBeTruthy()
-    expect(screen.queryByText(/Allocate the remaining/)).toBeNull()
     expect(save.hasAttribute('disabled')).toBe(true)
-
-    fireEvent.change(evidence, { target: { value: '10' } })
-    expect(screen.getByText('Remaining: 10%')).toBeTruthy()
-    expect(screen.getByText('Allocate the remaining 10% to save.')).toBeTruthy()
-    expect(save.hasAttribute('disabled')).toBe(true)
-
-    fireEvent.change(significance, { target: { value: '30' } })
-    expect(screen.getByText('Remaining: 0%')).toBeTruthy()
-    expect(screen.queryByText(/Allocate the remaining/)).toBeNull()
+    await user.clear(textarea)
+    await user.type(textarea, 'In-depth reporting on housing and local government.')
     expect(save.hasAttribute('disabled')).toBe(false)
 
     await user.click(save)
-    await waitFor(() => expect(mockApiPut).toHaveBeenCalled())
+
+    await waitFor(() => expect(mockApiPut).toHaveBeenCalledWith('/api/settings/relevance', {
+      brief: 'In-depth reporting on housing and local government.',
+    }))
+    expect(screen.getByRole('status').textContent).toBe('Brief saved. New articles will use it.')
   })
 
-  it('caps an increase at the current value plus the available budget', () => {
-    render(<RelevanceSection />)
-    const evidence = screen.getByRole('slider', { name: 'Evidence & credibility' })
-    const significance = screen.getByRole('slider', { name: 'Public significance' })
-
-    fireEvent.change(evidence, { target: { value: '10' } })
-    expect(significance.getAttribute('max')).toBe('100')
-
-    fireEvent.change(significance, { target: { value: '40' } })
-    expect((significance as HTMLInputElement).value).toBe('30')
-    expect((evidence as HTMLInputElement).value).toBe('10')
-  })
-
-  it('saves whole percentages as weights that sum to one', async () => {
+  it('allows an existing brief to be cleared', async () => {
     const user = userEvent.setup()
     render(<RelevanceSection />)
-    const evidence = screen.getByRole('slider', { name: 'Evidence & credibility' })
-    const significance = screen.getByRole('slider', { name: 'Public significance' })
-    fireEvent.change(evidence, { target: { value: '10' } })
-    fireEvent.change(significance, { target: { value: '30' } })
+
+    await user.clear(screen.getByRole('textbox', { name: 'Reading brief' }))
     await user.click(screen.getByRole('button', { name: 'Save brief' }))
-    await waitFor(() => expect(mockApiPut).toHaveBeenCalledWith('/api/settings/plugins/relevance/profile', expect.objectContaining({ profile: expect.objectContaining({ name: 'Balanced', weights: expect.any(Object) }) })))
-    const payload = mockApiPut.mock.calls[0][1] as { profile: { weights: Record<string, number> } }
-    expect(Object.values(payload.profile.weights).reduce((sum, value) => sum + value, 0)).toBe(1)
-    expect(payload.profile.weights.evidence_credibility).toBe(0.1)
-    expect(payload.profile.weights.public_significance).toBe(0.3)
+
+    await waitFor(() => expect(mockApiPut).toHaveBeenCalledWith('/api/settings/relevance', { brief: '' }))
   })
 
-  it('toggles the persisted plugin control', async () => {
+  it('shows a save error and keeps the edited brief available to retry', async () => {
+    const user = userEvent.setup()
+    mockApiPut.mockRejectedValueOnce(new Error('offline'))
+    render(<RelevanceSection />)
+    const textarea = screen.getByRole('textbox', { name: 'Reading brief' })
+
+    await user.clear(textarea)
+    await user.type(textarea, 'A new focus')
+    await user.click(screen.getByRole('button', { name: 'Save brief' }))
+
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Could not save the brief. Try again.'))
+    expect((textarea as HTMLTextAreaElement).value).toBe('A new focus')
+    expect(screen.getByRole('button', { name: 'Save brief' }).hasAttribute('disabled')).toBe(false)
+  })
+
+  it('explains when relevance is disabled and prevents brief edits until it is enabled', () => {
+    health.enabled = false
+    render(<RelevanceSection />)
+
+    expect(screen.getByText('Relevance is off. Turn it on to edit the brief and score new articles.')).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'Reading brief' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: 'Save brief' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('keeps the persisted plugin switch', async () => {
     const user = userEvent.setup()
     render(<RelevanceSection />)
+
     await user.click(screen.getByRole('switch', { name: 'Toggle plugin' }))
     expect(mockApiPatch).toHaveBeenCalledWith('/api/settings/plugins/relevance', { enabled: false })
-  })
-
-  it('updates only the selected weight', () => {
-    const next = updateRelevanceWeight(profile.profile.weights, 'evidence_credibility', 0.5)
-    expect(next.evidence_credibility).toBe(0.5)
-    expect(next.public_significance).toBe(profile.profile.weights.public_significance)
-    expect(next.information_value).toBe(profile.profile.weights.information_value)
-    expect(Object.keys(next)).toHaveLength(SIGNAL_KEYS.length)
   })
 })

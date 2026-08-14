@@ -127,6 +127,7 @@ describe('ArticleDetail bookmark', () => {
     read_at: '2026-03-04T00:00:00.000Z',
     bookmarked_at: null,
     liked_at: null,
+    relevance: { score: 84, reason: 'Matches your reading brief.' },
   }
 
   beforeEach(() => {
@@ -156,6 +157,8 @@ describe('ArticleDetail bookmark', () => {
     )
 
     const buttons = screen.getAllByRole('button', { pressed: false })
+    expect(screen.getByText(/84\/100/)).toBeTruthy()
+    expect(screen.getByText('Matches your reading brief.')).toBeTruthy()
     // First aria-pressed button is bookmark, second is like
     const bookmarkBtn = buttons[0]
     const icon = bookmarkBtn.querySelector('svg')

@@ -202,6 +202,8 @@ export function getArticles(opts: {
     FROM active_articles a
     JOIN feeds f ON a.feed_id = f.id
     LEFT JOIN article_relevance r ON r.article_id = a.id
+      AND r.brief_revision = (SELECT revision FROM relevance_config WHERE id = 1)
+      AND (SELECT brief FROM relevance_config WHERE id = 1) IS NOT NULL
     ${where}
     ORDER BY ${orderBy}
     LIMIT @_limit OFFSET @_offset

@@ -1,8 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { requireJson } from '../auth.js'
-import { getStaticPluginHealth, isStaticPluginEnabled, setStaticPluginEnabled, getAiLabelsAllowNewLabels, setAiLabelsAllowNewLabels } from '../plugins/controls.js'
-import { getRelevanceProfile, setRelevanceProfile } from '../plugins/relevance.js'
+import { getStaticPluginHealth, setStaticPluginEnabled, getAiLabelsAllowNewLabels, setAiLabelsAllowNewLabels } from '../plugins/controls.js'
 import { parseOrBadRequest } from '../lib/validation.js'
 
 const EnabledBody = z.object({ enabled: z.boolean() })
@@ -17,11 +16,4 @@ export async function pluginControlRoutes(api: FastifyInstance): Promise<void> {
   register('/api/settings/plugins/relevance', 'omos.relevance')
   register('/api/settings/plugins/ai-labels', 'omos.ai-labels')
   api.patch('/api/settings/plugins/ai-labels/config', { preHandler: [requireJson] }, async (request, reply) => { const body = parseOrBadRequest(z.object({ allow_new_labels: z.boolean() }), request.body, reply); if (!body) return; setAiLabelsAllowNewLabels(body.allow_new_labels); reply.send({ ...getStaticPluginHealth('omos.ai-labels'), allow_new_labels: getAiLabelsAllowNewLabels() }) })
-  api.get('/api/settings/plugins/relevance/profile', async (_request, reply) => reply.send({ ...getRelevanceProfile(), enabled: isStaticPluginEnabled('omos.relevance') }))
-  api.put('/api/settings/plugins/relevance/profile', { preHandler: [requireJson] }, async (request, reply) => {
-    const body = parseOrBadRequest(z.object({ profile: z.unknown() }), request.body, reply)
-    if (!body) return
-    const revision = setRelevanceProfile(body.profile)
-    reply.send({ ...getRelevanceProfile(), revision, enabled: isStaticPluginEnabled('omos.relevance') })
-  })
 }

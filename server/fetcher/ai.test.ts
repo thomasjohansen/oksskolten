@@ -27,6 +27,7 @@ vi.mock('../providers/llm/index.js', () => ({
 import {
   detectLanguage,
   summarizeArticle,
+  assessArticleRelevance,
   streamSummarizeArticle,
   translateArticle,
   streamTranslateArticle,
@@ -159,6 +160,26 @@ describe('summarizeArticle', () => {
     })
     await expect(summarizeArticle('text')).rejects.toThrow('ANTHROPIC_KEY_NOT_SET')
     mockRequireKey.mockReset()
+  })
+})
+
+describe('assessArticleRelevance', () => {
+  it('sends the reading brief and article metadata in a strict direct-score prompt', async () => {
+    mockCreateMessage.mockResolvedValue({ text: '{"score":82,"reason":"Direct match."}', inputTokens: 0, outputTokens: 0 })
+
+    await assessArticleRelevance('Article body', 'Climate policy', {
+      title: 'New climate law',
+      feedName: 'Public news',
+      url: 'https://example.test/climate',
+    })
+
+    const prompt = mockCreateMessage.mock.calls[0][0].messages[0].content
+    expect(prompt).toContain('"score":0')
+    expect(prompt).toContain('Climate policy')
+    expect(prompt).toContain('New climate law')
+    expect(prompt).toContain('Public news')
+    expect(prompt).toContain('https://example.test/climate')
+    expect(prompt).toContain('Article body')
   })
 })
 

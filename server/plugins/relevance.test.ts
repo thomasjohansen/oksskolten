@@ -9,135 +9,107 @@ vi.mock('../fetcher/ai.js', async () => {
   return { ...actual, assessArticleRelevance }
 })
 
-import { DEFAULT_RELEVANCE_PROFILE, getRelevanceBrief, setRelevanceBrief, enqueueRelevanceForArticle, getRelevanceJob, getArticleRelevance, runRelevanceJobs, computeRelevanceScore, getRelevanceProfile, setRelevanceProfile } from './relevance.js'
-
-const signals = (value: number, reason = 'Evidence signal.') => Object.fromEntries(['evidence_credibility', 'public_significance', 'information_value', 'constructive_positive_impact', 'clickbait_penalty', 'paywall_penalty', 'distressing_conflict_war_penalty'].map(key => [key, { value, reason }]))
+import { enqueueRelevanceForArticle, getArticleRelevance, getRelevanceBrief, getRelevanceJob, runRelevanceJobs, setRelevanceBrief } from './relevance.js'
 
 beforeEach(() => {
   setupTestDb()
   assessArticleRelevance.mockReset()
 })
 
-function article(content = 'article body'): number {
-  const feed = createFeed({ name: 'Relevance', url: `https://relevance-${Math.random()}.test/rss` })
-  return insertArticle({ feed_id: feed.id, title: 'Article', url: `https://relevance-${Math.random()}.test/article`, published_at: null, full_text: content })
+function article(content = 'article body', title = 'Article'): number {
+  const feed = createFeed({ name: 'Relevance feed', url: `https://relevance-${Math.random()}.test/rss` })
+  return insertArticle({ feed_id: feed.id, title, url: `https://relevance-${Math.random()}.test/article`, published_at: null, full_text: content })
 }
 
 describe('bundled Relevance plugin', () => {
-  it('validates versioned Balanced profiles and computes weighted scores deterministically', () => {
-    expect(() => setRelevanceProfile({ version: 1, name: 'Balanced', weights: { ...DEFAULT_RELEVANCE_PROFILE.weights, evidence_credibility: 2 } })).toThrow(/weight/i)
-    const profile = { ...DEFAULT_RELEVANCE_PROFILE, weights: { ...DEFAULT_RELEVANCE_PROFILE.weights } }
-    const value = signals(100)
-    expect(computeRelevanceScore(value as never, profile)).toBe(50)
-    expect(getRelevanceProfile().profile.name).toBe('Balanced')
-  })
-  it('does nothing without a non-empty brief', () => {
+  it('does nothing without a non-empty reading brief', () => {
     const id = article()
-    expect(getRelevanceBrief()).toMatchObject({ brief: null, revision: 0 })
+    expect(getRelevanceBrief()).toEqual({ brief: null, revision: 0, configured: false })
     expect(enqueueRelevanceForArticle(id)).toBeNull()
-    expect(getDb().prepare('SELECT COUNT(*) AS count FROM relevance_jobs').get()).toMatchObject({ count: 0 })
   })
 
-  it('does not turn an already queued job into a provider failure when the brief is cleared', async () => {
-    setRelevanceBrief('brief')
-    const id = article()
-    setRelevanceBrief('')
-    await runRelevanceJobs()
-    expect(assessArticleRelevance).not.toHaveBeenCalled()
-    expect(getRelevanceJob(id)).toMatchObject({ status: 'superseded', error: 'Relevance brief is empty' })
-  })
-
-  it('creates a revision and fingerprints content with the brief revision/value', () => {
-    const id = article()
-    const firstRevision = setRelevanceBrief('Articles about climate policy')
-    const first = enqueueRelevanceForArticle(id)
-    setRelevanceBrief('Articles about local government')
-    const second = enqueueRelevanceForArticle(id)
-    expect(firstRevision).toBe(1)
-    expect(getRelevanceBrief()).toMatchObject({ revision: 2, brief: 'Articles about local government' })
-    expect(second).not.toBe(first)
-    expect(getDb().prepare('SELECT COUNT(*) AS count FROM relevance_jobs WHERE article_id = ?').get(id)).toMatchObject({ count: 2 })
-    expect(getRelevanceJob(id)).toMatchObject({ brief_revision: 2 })
-  })
-
-  it('validates and persists a successful score and concise reason', async () => {
+  it('validates and persists the AI direct score and reason with article metadata', async () => {
+    const id = article('Climate policy article body', 'Climate action')
     setRelevanceBrief('Articles about climate policy')
-    assessArticleRelevance.mockResolvedValue(signals(0, 'Directly covers climate policy.'))
-    const id = article()
-    enqueueRelevanceForArticle(id)
+    assessArticleRelevance.mockResolvedValue({ score: 87, reason: 'Directly covers climate policy.' })
+
     await runRelevanceJobs()
-    expect(getArticleRelevance(id)).toMatchObject({ score: 0, reason: 'Directly covers climate policy.' })
+
+    expect(assessArticleRelevance).toHaveBeenCalledWith(
+      'Climate policy article body',
+      'Articles about climate policy',
+      { title: 'Climate action', feedName: 'Relevance feed', url: expect.stringContaining('/article') },
+    )
+    expect(getArticleRelevance(id)).toMatchObject({ score: 87, reason: 'Directly covers climate policy.', brief_revision: 1 })
     expect(getRelevanceJob(id)).toMatchObject({ status: 'succeeded' })
   })
 
-  it('processes a configured structured profile without a legacy brief', async () => {
-    setRelevanceProfile(DEFAULT_RELEVANCE_PROFILE)
-    assessArticleRelevance.mockResolvedValue(signals(80, 'Structured profile result.'))
+  it('rejects malformed direct output as a retryable failure', async () => {
+    setRelevanceBrief('Climate policy')
+    assessArticleRelevance.mockResolvedValue({ score: 101, reason: '' })
     const id = article()
-    expect(enqueueRelevanceForArticle(id)).not.toBeNull()
+
     await runRelevanceJobs()
-    expect(getArticleRelevance(id)).toMatchObject({ score: 40, reason: 'Structured profile result.' })
-    expect(getRelevanceJob(id)).toMatchObject({ status: 'succeeded' })
+
+    expect(getArticleRelevance(id)).toBeNull()
+    expect(getRelevanceJob(id)).toMatchObject({ status: 'failed', error: expect.stringMatching(/score|reason/i) })
   })
 
-  it('requeues only jobs superseded by the obsolete legacy brief guard', async () => {
-    setRelevanceProfile(DEFAULT_RELEVANCE_PROFILE)
-    assessArticleRelevance.mockResolvedValue(signals(80, 'Recovered result.'))
-    const id = article()
-    const jobId = enqueueRelevanceForArticle(id)
-    getDb().prepare("UPDATE relevance_jobs SET status = 'superseded', error = 'Relevance brief is empty', completed_at = datetime('now') WHERE id = ?").run(jobId)
-    expect(enqueueRelevanceForArticle(id)).toBe(jobId)
-    expect(getRelevanceJob(id)).toMatchObject({ status: 'pending', error: null })
-    await runRelevanceJobs()
-    expect(getRelevanceJob(id)).toMatchObject({ status: 'succeeded' })
+  it('increments once and bulk requeues eligible articles only when the brief changes', () => {
+    const first = article('first')
+    const second = article('second')
 
-    const staleId = article('stale content')
-    const staleJobId = enqueueRelevanceForArticle(staleId)
-    getDb().prepare("UPDATE relevance_jobs SET status = 'superseded', error = 'Stale relevance input', completed_at = datetime('now') WHERE id = ?").run(staleJobId)
-    expect(enqueueRelevanceForArticle(staleId)).toBe(staleJobId)
-    expect(getRelevanceJob(staleId)).toMatchObject({ status: 'superseded', error: 'Stale relevance input' })
+    expect(setRelevanceBrief('Climate policy')).toBe(1)
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM relevance_jobs WHERE brief_revision = 1').get()).toMatchObject({ count: 2 })
+    expect(setRelevanceBrief('Climate policy')).toBe(1)
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM relevance_jobs').get()).toMatchObject({ count: 2 })
+    expect(setRelevanceBrief('Local government')).toBe(2)
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM relevance_jobs WHERE brief_revision = 2 AND status = \'pending\'').get()).toMatchObject({ count: 2 })
+    expect(getRelevanceJob(first)).toMatchObject({ brief_revision: 2 })
+    expect(getRelevanceJob(second)).toMatchObject({ brief_revision: 2 })
   })
 
-  it('rejects invalid score or reason as a retryable failure', async () => {
-    setRelevanceBrief('Articles about climate policy')
-    assessArticleRelevance.mockResolvedValue({ ...signals(0), evidence_credibility: { value: 101, reason: 'x' } })
+  it('clears the brief without requeueing and makes old results unavailable', async () => {
     const id = article()
-    enqueueRelevanceForArticle(id)
+    setRelevanceBrief('Climate policy')
+    assessArticleRelevance.mockResolvedValue({ score: 80, reason: 'Relevant.' })
     await runRelevanceJobs()
-    expect(getRelevanceJob(id)).toMatchObject({ status: 'failed', error: expect.stringMatching(/signal/i) })
+
+    expect(setRelevanceBrief('')).toBe(2)
+    expect(getRelevanceBrief()).toEqual({ brief: null, revision: 2, configured: false })
+    expect(getArticleRelevance(id)).toBeNull()
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM relevance_jobs').get()).toMatchObject({ count: 1 })
   })
 
-  it('ignores stale content and stale brief results', async () => {
+  it('supersedes stale jobs and never persists their results', async () => {
+    const id = article('old content')
     setRelevanceBrief('old brief')
     let release!: () => void
-    assessArticleRelevance.mockImplementation(async () => { await new Promise<void>(resolve => { release = resolve }); return signals(80, 'stale') })
-    const id = article()
-    enqueueRelevanceForArticle(id)
+    assessArticleRelevance.mockImplementation(async () => {
+      await new Promise<void>(resolve => { release = resolve })
+      return { score: 80, reason: 'Old result.' }
+    })
+
     const run = runRelevanceJobs()
     updateArticleContent(id, { full_text: 'new content' })
     setRelevanceBrief('new brief')
     release()
     await run
+
     expect(getArticleRelevance(id)).toBeNull()
     expect(getDb().prepare("SELECT COUNT(*) AS count FROM relevance_jobs WHERE article_id = ? AND brief_revision = 2 AND status = 'pending'").get(id)).toMatchObject({ count: 1 })
+    expect(getDb().prepare("SELECT COUNT(*) AS count FROM relevance_jobs WHERE article_id = ? AND status = 'superseded'").get(id)).toMatchObject({ count: 1 })
   })
 
-  it('backs off failures and eventually reaches dead state', async () => {
+  it('preserves retry backoff and dead-letter behavior', async () => {
     setRelevanceBrief('brief')
     assessArticleRelevance.mockRejectedValue(new Error('provider down'))
-    const id = article()
-    enqueueRelevanceForArticle(id)
+    article()
     const now = Date.now()
-    await runRelevanceJobs({ now, random: () => 0 })
-    expect(getRelevanceJob(id)).toMatchObject({ status: 'failed', attempts: 1 })
-    for (let i = 0; i < 4; i++) await runRelevanceJobs({ now: now + (2 ** (i + 1)) * 1_000, random: () => 0 })
-    expect(getRelevanceJob(id)).toMatchObject({ status: 'dead', attempts: 5 })
-  })
 
-  it('keeps Summary enqueueing independent from Relevance', () => {
-    setRelevanceBrief('brief')
-    const id = article()
-    expect(getDb().prepare('SELECT COUNT(*) AS count FROM summary_jobs WHERE article_id = ?').get(id)).toMatchObject({ count: 1 })
-    expect(getDb().prepare('SELECT COUNT(*) AS count FROM relevance_jobs WHERE article_id = ?').get(id)).toMatchObject({ count: 1 })
+    await runRelevanceJobs({ now, random: () => 0 })
+    for (let i = 0; i < 4; i++) await runRelevanceJobs({ now: now + (2 ** (i + 1)) * 1_000, random: () => 0 })
+
+    expect(getRelevanceJob(1)).toMatchObject({ status: 'dead', attempts: 5 })
   })
 })

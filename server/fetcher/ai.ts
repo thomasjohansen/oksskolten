@@ -49,13 +49,17 @@ Preserve Markdown formatting. In particular, keep blockquote lines starting with
 --- Article body ---
 {{article}}`
 
-const RELEVANCE_PROMPT = (profile: string) =>
-  `Evaluate the following evidence signals for this article using the supplied Balanced profile.
-Return only strict JSON: {"evidence_credibility":{"value":0,"reason":"..."},"public_significance":{"value":0,"reason":"..."},"information_value":{"value":0,"reason":"..."},"constructive_positive_impact":{"value":0,"reason":"..."},"clickbait_penalty":{"value":0,"reason":"..."},"paywall_penalty":{"value":0,"reason":"..."},"distressing_conflict_war_penalty":{"value":0,"reason":"..."}}.
-Each value must be an integer from 0 to 100 and each reason one concise sentence, at most 280 characters. Assess signals from the article; do not claim to fact-check or establish truth.
+const RELEVANCE_PROMPT = (brief: string, metadata: RelevanceArticleMetadata) =>
+  `Score how well this article matches the reader's reading brief. Return only strict JSON: {"score":0,"reason":"..."}.
+Score must be an integer from 0 to 100. Reason must be non-empty, concise, and at most 280 characters. Score only relevance to the reading brief; do not fact-check or apply any other quality, sentiment, or engagement criteria.
 
---- Balanced profile ---
-${profile}
+--- Reading brief ---
+${brief}
+
+--- Article metadata ---
+Title: ${metadata.title}
+Feed/source: ${metadata.feedName}
+URL: ${metadata.url}
 
 --- Article body ---
 {{article}}`
@@ -140,15 +144,8 @@ const translateConfig: AiTaskConfig = {
   buildPrompt: buildTranslatePrompt,
 }
 
-const relevanceConfig: AiTaskConfig = {
-  providerKey: 'summary.provider',
-  modelKey: 'summary.model',
-  defaultModel: TASK_DEFAULTS.summarize.model,
-  maxTokens: 512,
-  buildPrompt: text => applyArticle(RELEVANCE_PROMPT(getSetting('relevance.brief') || ''), text),
-}
-
 export interface AiLabelOption { id: number; name: string }
+export interface RelevanceArticleMetadata { title: string; feedName: string; url: string }
 
 const AI_LABELS_PROMPT = (availableLabels: AiLabelOption[]) => `Suggest 1-3 broad reusable labels for this article for an existing reader label system.
 Return only strict JSON: {"labels":[{"label_id":12,"name":"Climate policy","confidence":0.92}]}.
@@ -168,9 +165,8 @@ export async function summarizeArticle(fullText: string, sourceLanguage?: string
   return { summary: r.text, inputTokens: r.inputTokens, outputTokens: r.outputTokens, billingMode: r.billingMode, model: r.model }
 }
 
-export async function assessArticleRelevance(fullText: string, profile: string, metadata?: { has_full_text: boolean; has_teaser: boolean; paywall: boolean }): Promise<unknown> {
-  const metadataText = metadata ? `\n\n--- Application metadata (deterministic) ---\n${JSON.stringify(metadata)}` : ''
-  const r = await runAiTask({ ...relevanceConfig, buildPrompt: text => applyArticle(`${RELEVANCE_PROMPT(profile)}${metadataText}`, text) }, fullText)
+export async function assessArticleRelevance(fullText: string, brief: string, metadata: RelevanceArticleMetadata): Promise<unknown> {
+  const r = await runAiTask({ providerKey: 'summary.provider', modelKey: 'summary.model', defaultModel: TASK_DEFAULTS.summarize.model, maxTokens: 512, buildPrompt: text => applyArticle(RELEVANCE_PROMPT(brief, metadata), text) }, fullText)
   try { return JSON.parse(r.text) as unknown } catch { throw new Error('Invalid relevance JSON') }
 }
 

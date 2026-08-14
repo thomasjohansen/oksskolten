@@ -16,6 +16,7 @@ import {
   getRetryStats,
 } from '../db.js'
 import { createFeed, createCategory, getDb } from '../db.js'
+import { setRelevanceBrief } from '../plugins/relevance.js'
 
 beforeEach(() => {
   setupTestDb()
@@ -399,6 +400,7 @@ describe('score persistence', () => {
     const lower = seedArticle(feed.id, { url: 'https://example.com/relevance-low' })
     const higher = seedArticle(feed.id, { url: 'https://example.com/relevance-high' })
     const unscored = seedArticle(feed.id, { url: 'https://example.com/relevance-none' })
+    setRelevanceBrief('Current reading brief')
     getDb().prepare("INSERT INTO article_relevance (article_id, score, reason, content_hash, brief_hash, brief_revision) VALUES (?, 40, 'Somewhat relevant', 'a', 'b', 1), (?, 90, 'Highly relevant', 'c', 'd', 1)").run(lower, higher)
 
     const { articles } = getArticles({ sort: 'relevance', limit: 100, offset: 0 })
